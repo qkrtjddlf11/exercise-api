@@ -47,7 +47,7 @@ type ExerciseInCatetory struct {
 
 func errCheck(err error) error {
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	return nil
@@ -115,7 +115,9 @@ func (c Category) categoryInsertQuery() (Id int, err error) {
 	}
 
 	id, err := rs.LastInsertId()
-	errCheck(err)
+	if err != nil {
+		return
+	}
 
 	Id = int(id)
 	defer stmt.Close()
@@ -136,7 +138,9 @@ func (e Exercise) exerciseInsertQuery() (Id int, err error) {
 	}
 
 	id, err := rs.LastInsertId()
-	errCheck(err)
+	if err != nil {
+		return
+	}
 
 	Id = int(id)
 	defer stmt.Close()
@@ -146,13 +150,19 @@ func (e Exercise) exerciseInsertQuery() (Id int, err error) {
 
 func (c Category) categoryDeleteQuery() (rows int, err error) {
 	stmt, err := db.Prepare("DELETE FROM category WHERE id = ?")
-	errCheck(err)
+	if err != nil {
+		return
+	}
 
 	rs, err := stmt.Exec(c.Id)
-	errCheck(err)
+	if err != nil {
+		return
+	}
 
 	row, err := rs.RowsAffected()
-	errCheck(err)
+	if err != nil {
+		return
+	}
 	defer stmt.Close()
 	rows = int(row)
 
@@ -161,13 +171,19 @@ func (c Category) categoryDeleteQuery() (rows int, err error) {
 
 func (e Exercise) exerciseDeleteQuery() (rows int, err error) {
 	stmt, err := db.Prepare("DELETE FROM exercise WHERE id = ?")
-	errCheck(err)
+	if err != nil {
+		return
+	}
 
 	rs, err := stmt.Exec(e.Id)
-	errCheck(err)
+	if err != nil {
+		return
+	}
 
 	row, err := rs.RowsAffected()
-	errCheck(err)
+	if err != nil {
+		return
+	}
 	defer stmt.Close()
 	rows = int(row)
 	return
@@ -210,6 +226,7 @@ func (e Exercise) exerciseUpdateQuery() (rows int, err error) {
 		errCheck(err)
 
 		row, err := rs.RowsAffected()
+
 		errCheck(err)
 		defer stmt.Close()
 		rows = int(row)
@@ -230,8 +247,9 @@ func (e Exercise) exerciseUpdateQuery() (rows int, err error) {
 
 func main() {
 	// Logging to file
+	//gin.DisableConsoleColor()
 	logFile, _ := os.Create("gin.log")
-	gin.DefaultWriter = io.MultiWriter(logFile, os.Stdout)
+	gin.DefaultWriter = io.MultiWriter(logFile)
 
 	err := godotenv.Load(".env")
 	if err != nil {
@@ -256,9 +274,11 @@ func main() {
 	router.GET("/api/category/all", func(c *gin.Context) {
 		category := Category{}
 		categories, err := category.categoryGetQueryAll()
-		errCheck(err)
-
-		c.JSON(http.StatusOK, categories)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{})
+		} else {
+			c.JSON(http.StatusOK, categories)
+		}
 	})
 
 	// GET All Exercises in Specific Category.
@@ -270,9 +290,9 @@ func main() {
 
 		exercise := ExerciseInCatetory{}
 		exercises, err := exercise.exerciseGetQueryInCategory(Category_id)
-		errCheck(err)
-
-		if len(exercises) > 0 {
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{})
+		} else if len(exercises) > 0 {
 			c.JSON(http.StatusOK, exercises)
 		} else {
 			nullExercise := [0]ExerciseInCatetory{}
@@ -288,17 +308,19 @@ func main() {
 		errCheck(err)
 
 		Id, err := category.categoryInsertQuery()
-		errCheck(err)
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": fmt.Sprintf(" %d Successfully Created", Id),
-		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{})
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"message": fmt.Sprintf(" %d Successfully Created", Id),
+			})
+		}
 	})
 
 	// Delete Specific Category.
 	// curl http://127.0.0.1:8080/api/category/delete/5 -X DELETE
 	router.DELETE("/api/category/:category_id", func(c *gin.Context) {
-		id := c.Param("id")
+		id := c.Param("category_id")
 
 		Id, err := strconv.ParseInt(id, 10, 10)
 		errCheck(err)
@@ -306,13 +328,18 @@ func main() {
 		category := Category{Id: int(Id)}
 		rows, err := category.categoryDeleteQuery()
 		if err != nil {
-			log.Fatal(err, rows)
+			c.JSON(http.StatusInternalServerError, Id)
+		} else {
+			if rows > 0 {
+				c.JSON(http.StatusOK, gin.H{
+					"message": fmt.Sprintf("Successfully deleted category_id: %d", Id),
+				})
+			} else {
+				c.JSON(http.StatusOK, gin.H{
+					"message": fmt.Sprintf("Nothing deleted category_id: %d", Id),
+				})
+			}
 		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": fmt.Sprintf("Successfully deleted category_id: %d", Id),
-		})
-
 	})
 
 	// Update Specific Category.
@@ -330,12 +357,18 @@ func main() {
 
 		rows, err := category.categoryUpdateQuery()
 		if err != nil {
-			log.Fatal(err, rows)
+			c.JSON(http.StatusInternalServerError, rows)
+		} else {
+			if rows > 0 {
+				c.JSON(http.StatusOK, gin.H{
+					"message": fmt.Sprintf("Successfully update category_id: %d", Id),
+				})
+			} else {
+				c.JSON(http.StatusOK, gin.H{
+					"message": fmt.Sprintf("Nothing deleted category_id: %d", Id),
+				})
+			}
 		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": fmt.Sprintf("Successfully update category_id: %d", Id),
-		})
 	})
 
 	// GET All Exercise.
@@ -343,9 +376,11 @@ func main() {
 	router.GET("/api/exercise/all", func(c *gin.Context) {
 		exercise := Exercise{}
 		exercises, err := exercise.exerciseGetQueryAll()
-		errCheck(err)
-
-		c.JSON(http.StatusOK, exercises)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{})
+		} else {
+			c.JSON(http.StatusOK, exercises)
+		}
 	})
 
 	// Create Specific Exercise.
@@ -358,11 +393,15 @@ func main() {
 
 		exercise.Category_Id, _ = strconv.Atoi(category_id)
 		Id, err := exercise.exerciseInsertQuery()
-		errCheck(err)
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": fmt.Sprintf(" %d Successfully Created", Id),
-		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"message": fmt.Sprintf("Failed Create"),
+			})
+		} else {
+			c.JSON(http.StatusOK, gin.H{
+				"message": fmt.Sprintf(" %d Successfully Created", Id),
+			})
+		}
 	})
 
 	// Delete Specific Exercise.
@@ -376,13 +415,18 @@ func main() {
 		exercise := Exercise{Id: int(Id)}
 		rows, err := exercise.exerciseDeleteQuery()
 		if err != nil {
-			log.Fatal(err, rows)
+			c.JSON(http.StatusInternalServerError, gin.H{})
+		} else {
+			if rows > 0 {
+				c.JSON(http.StatusOK, gin.H{
+					"message": fmt.Sprintf("Successfully deleted exercise_id: %d", Id),
+				})
+			} else {
+				c.JSON(http.StatusOK, gin.H{
+					"message": fmt.Sprintf("Nothing deleted exercise_id : %d", Id),
+				})
+			}
 		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": fmt.Sprintf("Successfully deleted exercise_id: %d", Id),
-		})
-
 	})
 
 	// Update Specific Exercise.
@@ -400,12 +444,21 @@ func main() {
 
 		rows, err := exercise.exerciseUpdateQuery()
 		if err != nil {
-			log.Fatal(err, rows)
-		}
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"message": fmt.Sprintf("Failed update exercise_id : %d", Id),
+			})
+		} else {
+			if rows > 0 {
+				c.JSON(http.StatusOK, gin.H{
+					"message": fmt.Sprintf("Successfully update exercise_id : %d", Id),
+				})
+			} else {
+				c.JSON(http.StatusOK, gin.H{
+					"message": fmt.Sprintf("Nothing updated exercise_id : %d", Id),
+				})
+			}
 
-		c.JSON(http.StatusOK, gin.H{
-			"message": fmt.Sprintf("Successfully update exercise_id: %d", Id),
-		})
+		}
 	})
 
 	router.Run("0.0.0.0:8080")
