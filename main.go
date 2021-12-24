@@ -53,6 +53,20 @@ func errCheck(err error) error {
 	return nil
 }
 
+// This function is to Check Duplicated Name in category or exercise table' name
+func duplicatedNameCheck(table, name string) (int, error) {
+	var count int
+	query := fmt.Sprintf("SELECT COUNT(name) FROM %s WHERE name = '%s'", table, name)
+	row := db.QueryRow(query)
+	err := row.Scan(&count)
+	if err != nil {
+		return 1, err
+	}
+
+	return count, nil
+}
+
+// This function is that Query all category rows
 func (c Category) categoryGetQueryAll() (categories []Category, err error) {
 	// select c.num, c.name, count(e.category_id) as \`count\` from category c left join exercise e on e.category_id = c.num group by c.num
 	rows, err := db.Query("SELECT c.id, c.name, c.`desc`, c.createdAt, c.updatedAt, count(e.category_id) AS count FROM category c left join exercise e on e.category_id = c.id group by c.id")
@@ -70,6 +84,7 @@ func (c Category) categoryGetQueryAll() (categories []Category, err error) {
 	return
 }
 
+// This function is that Query all exercise rows
 func (e Exercise) exerciseGetQueryAll() (exercises []Exercise, err error) {
 	rows, err := db.Query("SELECT id, name, `desc`, createdAt, updatedAt, category_id FROM exercise")
 	if err != nil {
@@ -104,6 +119,7 @@ func (e ExerciseInCatetory) exerciseGetQueryInCategory(category_id int) (exercie
 
 func (c Category) categoryInsertQuery() (Id int, err error) {
 	dateTime := time.Now().Format("2006-01-02 15:04:05")
+
 	stmt, err := db.Prepare("INSERT INTO category(name, `desc`, createdAt) VALUES(?, ?, ?)")
 	if err != nil {
 		return
@@ -247,7 +263,7 @@ func (e Exercise) exerciseUpdateQuery() (rows int, err error) {
 
 func main() {
 	// Logging to file
-	//gin.DisableConsoleColor()
+	gin.DisableConsoleColor()
 	logFile, _ := os.Create("gin.log")
 	gin.DefaultWriter = io.MultiWriter(logFile)
 
@@ -264,7 +280,9 @@ func main() {
 		os.Getenv("DBPORT"),
 		os.Getenv("DBNAME"))
 	db, err = sql.Open(MariaDB, dbString)
-	errCheck(err)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer db.Close()
 
 	router := gin.Default()
@@ -275,7 +293,8 @@ func main() {
 		category := Category{}
 		categories, err := category.categoryGetQueryAll()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{})
+			nullCategory := [0]Category{}
+			c.JSON(http.StatusInternalServerError, nullCategory)
 		} else {
 			c.JSON(http.StatusOK, categories)
 		}
@@ -286,12 +305,18 @@ func main() {
 	router.GET("/api/category/exercise/:category_id", func(c *gin.Context) {
 		category_id := c.Param("category_id")
 		Category_id, err := strconv.Atoi(category_id)
-		errCheck(err)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Invalid Parameter"),
+			})
+			return
+		}
 
 		exercise := ExerciseInCatetory{}
 		exercises, err := exercise.exerciseGetQueryInCategory(Category_id)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{})
+			nullExercise := [0]Exercise{}
+			c.JSON(http.StatusInternalServerError, nullExercise)
 		} else if len(exercises) > 0 {
 			c.JSON(http.StatusOK, exercises)
 		} else {
@@ -305,36 +330,60 @@ func main() {
 	router.POST("/api/category", func(c *gin.Context) {
 		category := Category{}
 		err := c.Bind(&category)
-		errCheck(err)
-
-		Id, err := category.categoryInsertQuery()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{})
-		} else {
-			c.JSON(http.StatusOK, gin.H{
-				"message": fmt.Sprintf(" %d Successfully Created", Id),
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Invalid JSON Format"),
 			})
 		}
+
+		row, err := duplicatedNameCheck("category", category.Name)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"message": fmt.Sprintf("Failed create category"),
+			})
+		} else {
+			switch {
+			case row == 0:
+				Id, err := category.categoryInsertQuery()
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{})
+				} else {
+					c.JSON(http.StatusOK, gin.H{
+						"message": fmt.Sprintf(" %d Successfully Created", Id),
+					})
+				}
+			case row == 1:
+				c.JSON(http.StatusBadRequest, gin.H{
+					"message": fmt.Sprintf("Duplicated Name"),
+				})
+			}
+		}
+
 	})
 
 	// Delete Specific Category.
 	// curl http://127.0.0.1:8080/api/category/delete/5 -X DELETE
 	router.DELETE("/api/category/:category_id", func(c *gin.Context) {
 		id := c.Param("category_id")
-
 		Id, err := strconv.ParseInt(id, 10, 10)
-		errCheck(err)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Invalid Parameter"),
+			})
+			return
+		}
 
 		category := Category{Id: int(Id)}
 		rows, err := category.categoryDeleteQuery()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, Id)
 		} else {
-			if rows > 0 {
+			switch {
+			case rows > 0:
 				c.JSON(http.StatusOK, gin.H{
 					"message": fmt.Sprintf("Successfully deleted category_id: %d", Id),
 				})
-			} else {
+			default:
 				c.JSON(http.StatusOK, gin.H{
 					"message": fmt.Sprintf("Nothing deleted category_id: %d", Id),
 				})
@@ -346,24 +395,34 @@ func main() {
 	// curl http://127.0.0.1:8080/api/category/patch/16 -X PATCH -d {"name": "변경된 카테고리", "desc": "Blah Blah.."}
 	router.PATCH("/api/category/:category_id", func(c *gin.Context) {
 		id := c.Param("category_id")
-
 		Id, err := strconv.Atoi(id)
-		errCheck(err)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Invalid Parameter"),
+			})
+			return
+		}
 
 		category := Category{}
 		category.Id = Id
 		err = c.Bind(&category)
-		errCheck(err)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Invalid JSON Format"),
+			})
+			return
+		}
 
 		rows, err := category.categoryUpdateQuery()
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, rows)
 		} else {
-			if rows > 0 {
+			switch {
+			case rows > 0:
 				c.JSON(http.StatusOK, gin.H{
 					"message": fmt.Sprintf("Successfully update category_id: %d", Id),
 				})
-			} else {
+			default:
 				c.JSON(http.StatusOK, gin.H{
 					"message": fmt.Sprintf("Nothing deleted category_id: %d", Id),
 				})
@@ -377,7 +436,8 @@ func main() {
 		exercise := Exercise{}
 		exercises, err := exercise.exerciseGetQueryAll()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{})
+			nullExercise := [0]Exercise{}
+			c.JSON(http.StatusInternalServerError, nullExercise)
 		} else {
 			c.JSON(http.StatusOK, exercises)
 		}
@@ -389,18 +449,44 @@ func main() {
 		category_id := c.Param("category_id")
 		exercise := Exercise{}
 		err := c.Bind(&exercise)
-		errCheck(err)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Invalid JSON Format"),
+			})
+			return
+		}
 
-		exercise.Category_Id, _ = strconv.Atoi(category_id)
-		Id, err := exercise.exerciseInsertQuery()
+		row, err := duplicatedNameCheck("exercise", exercise.Name)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": fmt.Sprintf("Failed Create"),
+				"message": fmt.Sprintf("Failed create exercise"),
 			})
 		} else {
-			c.JSON(http.StatusOK, gin.H{
-				"message": fmt.Sprintf(" %d Successfully Created", Id),
-			})
+			switch {
+			case row == 0:
+				exercise.Category_Id, _ = strconv.Atoi(category_id)
+				if err != nil {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"message": fmt.Sprintf("Invalid Parameter"),
+					})
+					return
+				}
+
+				Id, err := exercise.exerciseInsertQuery()
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{
+						"message": fmt.Sprintf("Failed Create"),
+					})
+				} else {
+					c.JSON(http.StatusOK, gin.H{
+						"message": fmt.Sprintf(" %d Successfully Created", Id),
+					})
+				}
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"message": fmt.Sprintf("Duplicated Name"),
+				})
+			}
 		}
 	})
 
@@ -408,14 +494,20 @@ func main() {
 	// curl http://127.0.0.1:8080/api/exercise/delete/5 -X DELETE
 	router.DELETE("/api/exercise/:exercise_id", func(c *gin.Context) {
 		id := c.Param("exercise_id")
-
 		Id, err := strconv.ParseInt(id, 10, 10)
-		errCheck(err)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Invalid Parameter"),
+			})
+			return
+		}
 
 		exercise := Exercise{Id: int(Id)}
 		rows, err := exercise.exerciseDeleteQuery()
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{})
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"message": fmt.Sprintf("Failed delete exercise"),
+			})
 		} else {
 			if rows > 0 {
 				c.JSON(http.StatusOK, gin.H{
@@ -433,14 +525,23 @@ func main() {
 	// curl http://127.0.0.1:8080/api/exercise/patch/16 -X PATCH -d {"name": "변경된 카테고리", "desc": "Blah Blah.."}
 	router.PATCH("/api/exercise/:exercise_id", func(c *gin.Context) {
 		id := c.Param("exercise_id")
-
 		Id, err := strconv.Atoi(id)
-		errCheck(err)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Invalid Parameter"),
+			})
+			return
+		}
 
 		exercise := Exercise{}
 		exercise.Id = Id
 		err = c.Bind(&exercise)
-		errCheck(err)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"message": fmt.Sprintf("Invalid JSON Format"),
+			})
+			return
+		}
 
 		rows, err := exercise.exerciseUpdateQuery()
 		if err != nil {
