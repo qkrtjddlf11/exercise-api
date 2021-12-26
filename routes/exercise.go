@@ -7,48 +7,55 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/qkrtjddlf11/exercise-api/common"
 )
 
 type Exercise struct {
-	Id          int     `json:"id"`
-	Name        string  `json:"name"`
-	Desc        string  `json:"desc"`
-	Created_At  *string `json:"createdAt"`
-	Updated_At  *string `json:"updatedAt"`
-	Category_Id int     `json:"category_id"`
-}
-
-func errCheck(err error) error {
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// This function is to Check Duplicated Name in category or exercise table' name
-func duplicatedNameCheck(table, name string, db *sql.DB) (int, error) {
-	var count int
-	query := fmt.Sprintf("SELECT COUNT(name) FROM %s WHERE name = '%s'", table, name)
-	row := db.QueryRow(query)
-	err := row.Scan(&count)
-	if err != nil {
-		return 1, err
-	}
-
-	return count, nil
+	Id           int     `json:"id"`
+	Title        string  `json:"title"`
+	Desc         *string `json:"desc"`
+	User_Id      int     `json:"user_id"`
+	Group_Id     int     `json:"group_id"`
+	Trainer_Id   int     `json:"trainer_id"`
+	Created_Date *string `json:"created_date"`
+	Updated_Date *string `json:"updated_date"`
+	Created_User string  `json:"created_user"`
+	Updated_User string  `json:"updated_user"`
+	Category_Id  int     `json:"category_id"`
 }
 
 // This function is that Query all exercise rows
 func (e Exercise) exerciseGetQueryAll(db *sql.DB) (exercises []Exercise, err error) {
-	rows, err := db.Query("SELECT id, name, `desc`, createdAt, updatedAt, category_id FROM exercise")
+	rows, err := db.Query(
+		`SELECT id, 
+		title,
+		` + "`desc`," +
+			`user_id,
+		group_id,
+		trainer_id,
+		created_date, 
+		updated_date,
+		created_user,
+		updated_user, 
+		category_id FROM t_exercise`)
 	if err != nil {
 		return
 	}
 
 	for rows.Next() {
 		var exercise Exercise
-		rows.Scan(&exercise.Id, &exercise.Name, &exercise.Desc, &exercise.Created_At, &exercise.Updated_At, &exercise.Category_Id)
+		rows.Scan(
+			&exercise.Id,
+			&exercise.Title,
+			&exercise.Desc,
+			&exercise.User_Id,
+			&exercise.Group_Id,
+			&exercise.Trainer_Id,
+			&exercise.Created_Date,
+			&exercise.Updated_Date,
+			&exercise.Created_User,
+			&exercise.Updated_User,
+			&exercise.Category_Id)
 		exercises = append(exercises, exercise)
 	}
 	defer rows.Close()
@@ -57,17 +64,19 @@ func (e Exercise) exerciseGetQueryAll(db *sql.DB) (exercises []Exercise, err err
 }
 
 func (e Exercise) exerciseInsertQuery(db *sql.DB) (Id int, err error) {
-	stmt, err := db.Prepare("INSERT INTO exercise(name, `desc`, category_id) VALUE(?, ?, ?)")
+	stmt, err := db.Prepare(
+		"INSERT INTO t_exercise(title, `desc`, user_id, group_id, trainer_id, created_user, updated_user, category_id) VALUE(?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return
 	}
 
-	rs, err := stmt.Exec(e.Name, e.Desc, e.Category_Id)
+	result, err := stmt.Exec(
+		e.Title, e.Desc, e.User_Id, e.Group_Id, e.Trainer_Id, e.Created_User, e.Updated_User, e.Category_Id)
 	if err != nil {
 		return
 	}
 
-	id, err := rs.LastInsertId()
+	id, err := result.LastInsertId()
 	if err != nil {
 		return
 	}
@@ -79,17 +88,18 @@ func (e Exercise) exerciseInsertQuery(db *sql.DB) (Id int, err error) {
 }
 
 func (e Exercise) exerciseDeleteQuery(db *sql.DB) (rows int, err error) {
-	stmt, err := db.Prepare("DELETE FROM exercise WHERE id = ?")
+	stmt, err := db.Prepare(
+		"DELETE FROM t_exercise WHERE id = ?")
 	if err != nil {
 		return
 	}
 
-	rs, err := stmt.Exec(e.Id)
+	result, err := stmt.Exec(e.Id)
 	if err != nil {
 		return
 	}
 
-	row, err := rs.RowsAffected()
+	row, err := result.RowsAffected()
 	if err != nil {
 		return
 	}
@@ -99,29 +109,73 @@ func (e Exercise) exerciseDeleteQuery(db *sql.DB) (rows int, err error) {
 }
 
 func (e Exercise) exerciseUpdateQuery(db *sql.DB) (rows int, err error) {
-	if len(e.Name) == 0 || e.Name == "" {
-		stmt, err := db.Prepare("UPDATE exercise SET `desc` = ?, updatedAt = now() WHERE id = ?")
-		errCheck(err)
+	// Case 1 -> Only Change Title, Case 2 -> Only Change Description, Case 3 -> Change Title and Description.
+	if len(e.Title) == 0 || e.Title == "" {
+		stmt, err := db.Prepare(
+			"UPDATE t_exercise SET `desc` = ?, updated_date = now(), updated_user = ? WHERE id = ?")
+		if err != nil {
+			rows = 0
+			return rows, err
+		}
 
-		rs, err := stmt.Exec(e.Name, e.Id)
-		errCheck(err)
+		result, err := stmt.Exec(e.Desc, e.Updated_User, e.Id)
+		if err != nil {
+			rows = 0
+			return rows, err
+		}
 
-		row, err := rs.RowsAffected()
-
-		errCheck(err)
+		row, err := result.RowsAffected()
+		if err != nil {
+			rows = 0
+			return rows, err
+		}
 		defer stmt.Close()
 		rows = int(row)
 	} else {
-		stmt, err := db.Prepare("UPDATE exercise SET name = ?, `desc` = ?, updatedAt = now() WHERE id = ?")
-		errCheck(err)
+		switch {
+		case e.Desc == nil:
+			stmt, err := db.Prepare(
+				"UPDATE t_exercise SET title = ?, updated_date = now(), updated_user = ? WHERE id = ?")
+			if err != nil {
+				rows = 0
+				return rows, err
+			}
 
-		rs, err := stmt.Exec(e.Name, e.Desc, e.Id)
-		errCheck(err)
+			result, err := stmt.Exec(e.Title, e.Updated_User, e.Id)
+			if err != nil {
+				rows = 0
+				return rows, err
+			}
 
-		row, err := rs.RowsAffected()
-		errCheck(err)
-		defer stmt.Close()
-		rows = int(row)
+			row, err := result.RowsAffected()
+			if err != nil {
+				rows = 0
+				return rows, err
+			}
+			defer stmt.Close()
+			rows = int(row)
+		default:
+			stmt, err := db.Prepare(
+				"UPDATE t_exercise SET title = ?, `desc` = ?, updated_date = now(), updated_user = ? WHERE id = ?")
+			if err != nil {
+				rows = 0
+				return rows, err
+			}
+
+			result, err := stmt.Exec(e.Title, e.Desc, e.Updated_User, e.Id)
+			if err != nil {
+				rows = 0
+				return rows, err
+			}
+
+			row, err := result.RowsAffected()
+			if err != nil {
+				rows = 0
+				return rows, err
+			}
+			defer stmt.Close()
+			rows = int(row)
+		}
 	}
 	return
 }
@@ -143,7 +197,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 	})
 
 	// Create Specific Exercise.
-	// curl http://127.0.0.1:8080/api/exercise/create/2 -X POST -d '{"name": "벤치 프레스", "desc": "가슴 근육 향상"}' -H "Content-Type: application/json"
+	// curl http://127.0.0.1:8080/api/exercise/2 -X POST -d '{"title": "벤치 프레스", "desc": "가슴 근육 향상"}' -H "Content-Type: application/json"
 	exercise.POST("/:category_id", func(c *gin.Context) {
 		category_id := c.Param("category_id")
 		exercise := Exercise{}
@@ -155,10 +209,10 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 			return
 		}
 
-		row, err := duplicatedNameCheck("exercise", exercise.Name, db)
+		row, err := common.DuplicatedTitleCheck("t_exercise", exercise.Title, db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": fmt.Sprintf("Failed create exercise"),
+				"message": fmt.Sprintf("Failed Create exercise"),
 			})
 		} else {
 			switch {
@@ -183,14 +237,14 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 				}
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{
-					"message": fmt.Sprintf("Duplicated Name"),
+					"message": fmt.Sprintf("Duplicated Title"),
 				})
 			}
 		}
 	})
 
 	// Delete Specific Exercise.
-	// curl http://127.0.0.1:8080/api/exercise/delete/5 -X DELETE
+	// curl http://127.0.0.1:8080/api/exercise/5 -X DELETE
 	exercise.DELETE("/:exercise_id", func(c *gin.Context) {
 		id := c.Param("exercise_id")
 		Id, err := strconv.ParseInt(id, 10, 10)
@@ -205,23 +259,23 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		rows, err := exercise.exerciseDeleteQuery(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": fmt.Sprintf("Failed delete exercise"),
+				"message": fmt.Sprintf("Failed Delete exercise"),
 			})
 		} else {
 			if rows > 0 {
 				c.JSON(http.StatusOK, gin.H{
-					"message": fmt.Sprintf("Successfully deleted exercise_id: %d", Id),
+					"message": fmt.Sprintf("Successfully Deleted exercise_id: %d", Id),
 				})
 			} else {
 				c.JSON(http.StatusOK, gin.H{
-					"message": fmt.Sprintf("Nothing deleted exercise_id : %d", Id),
+					"message": fmt.Sprintf("Nothing Deleted exercise_id : %d", Id),
 				})
 			}
 		}
 	})
 
 	// Update Specific Exercise.
-	// curl http://127.0.0.1:8080/api/exercise/patch/16 -X PATCH -d {"name": "변경된 카테고리", "desc": "Blah Blah.."}
+	// curl http://127.0.0.1:8080/api/exercise/16 -X PATCH -d {"title": "변경된 카테고리", "desc": "Blah Blah.."}
 	exercise.PATCH("/:exercise_id", func(c *gin.Context) {
 		id := c.Param("exercise_id")
 		Id, err := strconv.Atoi(id)
@@ -245,19 +299,18 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		rows, err := exercise.exerciseUpdateQuery(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": fmt.Sprintf("Failed update exercise_id : %d", Id),
+				"message": fmt.Sprintf("Failed Updated exercise_id : %d", Id),
 			})
 		} else {
 			if rows > 0 {
 				c.JSON(http.StatusOK, gin.H{
-					"message": fmt.Sprintf("Successfully update exercise_id : %d", Id),
+					"message": fmt.Sprintf("Successfully Updated exercise_id : %d", Id),
 				})
 			} else {
 				c.JSON(http.StatusOK, gin.H{
-					"message": fmt.Sprintf("Nothing updated exercise_id : %d", Id),
+					"message": fmt.Sprintf("Nothing Updated, Check exercise_id : %d", Id),
 				})
 			}
-
 		}
 	})
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"io"
 	"log"
 	"os"
 
@@ -18,10 +17,10 @@ const MariaDB string = "mysql"
 var db *sql.DB
 
 func main() {
-	// Logging to file
 	gin.DisableConsoleColor()
-	logFile, _ := os.Create("gin.log")
-	gin.DefaultWriter = io.MultiWriter(logFile)
+	gin.SetMode(gin.ReleaseMode)
+	//logFile, _ := os.Create("gin.log")
+	//gin.DefaultWriter = io.MultiWriter(logFile)
 
 	err := godotenv.Load(".env")
 	if err != nil {
@@ -43,8 +42,31 @@ func main() {
 
 	router := gin.Default()
 
+	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+		// Custrom log format
+		logFormat := fmt.Sprintf("[API] %s - \"%s %s %s %d %s \"%s\" %s\"\n",
+			param.ClientIP,
+			//param.TimeStamp.Format(time.RFC1123),
+			param.Method,
+			param.Path,
+			param.Request.Proto,
+			param.StatusCode,
+			param.Latency,
+			param.Request.UserAgent(),
+			param.ErrorMessage)
+
+		logFile, _ := os.Create("gin.log")
+		defer logFile.Close()
+
+		log.SetOutput(logFile)
+		log.Println(logFormat)
+
+		return logFormat
+
+	}))
 	routes.CategoryRouter(router, db)
 	routes.ExerciseRouter(router, db)
+	routes.TodayExerciseRouter(router, db)
 
 	router.Run("0.0.0.0:8080")
 }
