@@ -190,7 +190,10 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		exercises, err := exercise.exerciseGetQueryAll(db)
 		if err != nil {
 			nullExercise := [0]Exercise{}
-			c.JSON(http.StatusInternalServerError, nullExercise)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"message": err.Error(),
+				"value":   nullExercise,
+			})
 		} else {
 			c.JSON(http.StatusOK, exercises)
 		}
@@ -204,7 +207,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		err := c.Bind(&exercise)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"message": fmt.Sprintf("Invalid JSON Format"),
+				"message": err.Error(),
 			})
 			return
 		}
@@ -212,7 +215,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		row, err := common.DuplicatedTitleCheck("t_exercise", exercise.Title, db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": fmt.Sprintf("Failed Create exercise"),
+				"message": err.Error(),
 			})
 		} else {
 			switch {
@@ -220,7 +223,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 				exercise.Category_Id, _ = strconv.Atoi(category_id)
 				if err != nil {
 					c.JSON(http.StatusBadRequest, gin.H{
-						"message": fmt.Sprintf("Invalid Parameter"),
+						"message": err.Error(),
 					})
 					return
 				}
@@ -228,7 +231,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 				Id, err := exercise.exerciseInsertQuery(db)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{
-						"message": fmt.Sprintf("Failed Create"),
+						"message": err.Error(),
 					})
 				} else {
 					c.JSON(http.StatusOK, gin.H{
@@ -250,7 +253,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		Id, err := strconv.ParseInt(id, 10, 10)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"message": fmt.Sprintf("Invalid Parameter"),
+				"message": err.Error(),
 			})
 			return
 		}
@@ -259,7 +262,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		rows, err := exercise.exerciseDeleteQuery(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": fmt.Sprintf("Failed Delete exercise"),
+				"message": err.Error(),
 			})
 		} else {
 			if rows > 0 {
@@ -281,7 +284,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		Id, err := strconv.Atoi(id)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"message": fmt.Sprintf("Invalid Parameter"),
+				"message": err.Error(),
 			})
 			return
 		}
@@ -291,7 +294,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		err = c.Bind(&exercise)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"message": fmt.Sprintf("Invalid JSON Format"),
+				"message": err.Error(),
 			})
 			return
 		}
@@ -299,7 +302,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		rows, err := exercise.exerciseUpdateQuery(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": fmt.Sprintf("Failed Updated exercise_id : %d", Id),
+				"message": err.Error(),
 			})
 		} else {
 			if rows > 0 {
