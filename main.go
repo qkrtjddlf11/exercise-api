@@ -3,12 +3,14 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/joho/godotenv"
+	"github.com/qkrtjddlf11/exercise-api/controllers"
 	"github.com/qkrtjddlf11/exercise-api/routes"
 )
 
@@ -17,10 +19,10 @@ const MariaDB string = "mysql"
 var db *sql.DB
 
 func main() {
-	gin.DisableConsoleColor()
-	gin.SetMode(gin.ReleaseMode)
-	//logFile, _ := os.Create("gin.log")
-	//gin.DefaultWriter = io.MultiWriter(logFile)
+	//gin.DisableConsoleColor()
+	//gin.SetMode(gin.ReleaseMode)
+	logFile, _ := os.Create("gin.log")
+	gin.DefaultWriter = io.MultiWriter(logFile)
 
 	err := godotenv.Load(".env")
 	if err != nil {
@@ -41,32 +43,37 @@ func main() {
 	defer db.Close()
 
 	router := gin.Default()
+	/*
+		router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+			// Custrom log format
+			logFormat := fmt.Sprintf("[API] %s - \"%s %s %s %d %s \"%s\" %s\"\n",
+				param.ClientIP,
+				//param.TimeStamp.Format(time.RFC1123),
+				param.Method,
+				param.Path,
+				param.Request.Proto,
+				param.StatusCode,
+				param.Latency,
+				param.Request.UserAgent(),
+				param.ErrorMessage)
 
-	router.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
-		// Custrom log format
-		logFormat := fmt.Sprintf("[API] %s - \"%s %s %s %d %s \"%s\" %s\"\n",
-			param.ClientIP,
-			//param.TimeStamp.Format(time.RFC1123),
-			param.Method,
-			param.Path,
-			param.Request.Proto,
-			param.StatusCode,
-			param.Latency,
-			param.Request.UserAgent(),
-			param.ErrorMessage)
+			logFile, _ := os.Create("gin.log")
+			defer logFile.Close()
 
-		logFile, _ := os.Create("gin.log")
-		defer logFile.Close()
+			log.SetOutput(logFile)
+			log.Println(logFormat)
 
-		log.SetOutput(logFile)
-		log.Println(logFormat)
+			return logFormat
 
-		return logFormat
-
-	}))
+		}))
+	*/
+	//router.Use(gin.Logger())
+	//router.Use(middlewares.SetHeader)
 	routes.CategoryRouter(router, db)
 	routes.ExerciseRouter(router, db)
 	routes.TodayExerciseRouter(router, db)
+
+	controllers.AuthRouter(router, db)
 
 	router.Run("0.0.0.0:8080")
 }

@@ -12,7 +12,7 @@ import (
 
 type Exercise struct {
 	Id           int     `json:"id"`
-	Title        string  `json:"title"`
+	Title        string  `json:"title" binding:"required"`
 	Desc         *string `json:"desc"`
 	User_Id      int     `json:"user_id"`
 	Group_Id     int     `json:"group_id"`
@@ -25,7 +25,7 @@ type Exercise struct {
 }
 
 // This function is that Query all exercise rows
-func (e Exercise) exerciseGetQueryAll(db *sql.DB) (exercises []Exercise, err error) {
+func (e Exercise) selectAllExercise(db *sql.DB) (exercises []Exercise, err error) {
 	rows, err := db.Query(
 		`SELECT id, 
 		title,
@@ -63,7 +63,7 @@ func (e Exercise) exerciseGetQueryAll(db *sql.DB) (exercises []Exercise, err err
 	return
 }
 
-func (e Exercise) exerciseInsertQuery(db *sql.DB) (Id int, err error) {
+func (e Exercise) insertExercise(db *sql.DB) (Id int, err error) {
 	stmt, err := db.Prepare(
 		"INSERT INTO t_exercise(title, `desc`, user_id, group_id, trainer_id, created_user, updated_user, category_id) VALUE(?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
@@ -87,7 +87,7 @@ func (e Exercise) exerciseInsertQuery(db *sql.DB) (Id int, err error) {
 	return
 }
 
-func (e Exercise) exerciseDeleteQuery(db *sql.DB) (rows int, err error) {
+func (e Exercise) deleteExercise(db *sql.DB) (rows int, err error) {
 	stmt, err := db.Prepare(
 		"DELETE FROM t_exercise WHERE id = ?")
 	if err != nil {
@@ -108,7 +108,7 @@ func (e Exercise) exerciseDeleteQuery(db *sql.DB) (rows int, err error) {
 	return
 }
 
-func (e Exercise) exerciseUpdateQuery(db *sql.DB) (rows int, err error) {
+func (e Exercise) updateExercise(db *sql.DB) (rows int, err error) {
 	// Case 1 -> Only Change Title, Case 2 -> Only Change Description, Case 3 -> Change Title and Description.
 	if len(e.Title) == 0 || e.Title == "" {
 		stmt, err := db.Prepare(
@@ -180,34 +180,41 @@ func (e Exercise) exerciseUpdateQuery(db *sql.DB) (rows int, err error) {
 	return
 }
 
-func ExerciseRouter(router *gin.Engine, db *sql.DB) {
-	exercise := router.Group("/api/exercise")
-
-	// GET All Exercise.
-	// curl http://127.0.0.1:8080/api/exercise/all -X GET
-	exercise.GET("/all", func(c *gin.Context) {
+func getExercise(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
 		exercise := Exercise{}
-		exercises, err := exercise.exerciseGetQueryAll(db)
+		exercises, err := exercise.selectAllExercise(db)
 		if err != nil {
 			nullExercise := [0]Exercise{}
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message": err.Error(),
-				"value":   nullExercise,
+				"parameters": gin.H{
+					"params": gin.H{
+						"body": nullExercise,
+					},
+				},
 			})
 		} else {
 			c.JSON(http.StatusOK, exercises)
 		}
-	})
+	}
 
-	// Create Specific Exercise.
-	// curl http://127.0.0.1:8080/api/exercise/2 -X POST -d '{"title": "벤치 프레스", "desc": "가슴 근육 향상"}' -H "Content-Type: application/json"
-	exercise.POST("/:category_id", func(c *gin.Context) {
+	return resultFunc
+}
+
+func postExercise(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
 		category_id := c.Param("category_id")
 		exercise := Exercise{}
-		err := c.Bind(&exercise)
-		if err != nil {
+		if err := c.Bind(&exercise); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"message": err.Error(),
+				"parameters": gin.H{
+					"params": gin.H{
+						"category_id": category_id,
+					},
+					"body": exercise,
+				},
 			})
 			return
 		}
@@ -216,6 +223,11 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message": err.Error(),
+				"parameters": gin.H{
+					"params": gin.H{
+						"title": exercise.Title,
+					},
+				},
 			})
 		} else {
 			switch {
@@ -228,7 +240,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 					return
 				}
 
-				Id, err := exercise.exerciseInsertQuery(db)
+				Id, err := exercise.insertExercise(db)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{
 						"message": err.Error(),
@@ -244,11 +256,13 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 				})
 			}
 		}
-	})
+	}
 
-	// Delete Specific Exercise.
-	// curl http://127.0.0.1:8080/api/exercise/5 -X DELETE
-	exercise.DELETE("/:exercise_id", func(c *gin.Context) {
+	return resultFunc
+}
+
+func deleteExercise(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
 		id := c.Param("exercise_id")
 		Id, err := strconv.ParseInt(id, 10, 10)
 		if err != nil {
@@ -259,7 +273,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 		}
 
 		exercise := Exercise{Id: int(Id)}
-		rows, err := exercise.exerciseDeleteQuery(db)
+		rows, err := exercise.deleteExercise(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message": err.Error(),
@@ -275,11 +289,13 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 				})
 			}
 		}
-	})
+	}
 
-	// Update Specific Exercise.
-	// curl http://127.0.0.1:8080/api/exercise/16 -X PATCH -d {"title": "변경된 카테고리", "desc": "Blah Blah.."}
-	exercise.PATCH("/:exercise_id", func(c *gin.Context) {
+	return resultFunc
+}
+
+func patchExercise(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
 		id := c.Param("exercise_id")
 		Id, err := strconv.Atoi(id)
 		if err != nil {
@@ -299,7 +315,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 			return
 		}
 
-		rows, err := exercise.exerciseUpdateQuery(db)
+		rows, err := exercise.updateExercise(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message": err.Error(),
@@ -315,5 +331,27 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 				})
 			}
 		}
-	})
+	}
+
+	return resultFunc
+}
+
+func ExerciseRouter(router *gin.Engine, db *sql.DB) {
+	exercise := router.Group("/api/exercise")
+
+	// GET All Exercise.
+	// curl http://127.0.0.1:8080/api/exercise/all -X GET
+	exercise.GET("/all", getExercise(db))
+
+	// Create Specific Exercise.
+	// curl http://127.0.0.1:8080/api/exercise/2 -X POST -d '{"title": "벤치 프레스", "desc": "가슴 근육 향상"}' -H "Content-Type: application/json"
+	exercise.POST("/:category_id", postExercise(db))
+
+	// Delete Specific Exercise.
+	// curl http://127.0.0.1:8080/api/exercise/5 -X DELETE
+	exercise.DELETE("/:exercise_id", deleteExercise(db))
+
+	// Update Specific Exercise.
+	// curl http://127.0.0.1:8080/api/exercise/16 -X PATCH -d {"title": "변경된 카테고리", "desc": "Blah Blah.."}
+	exercise.PATCH("/:exercise_id", patchExercise(db))
 }

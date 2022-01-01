@@ -31,17 +31,17 @@ type ExerciseInCatetory struct {
 }
 
 // This function is that Query all category rows
-func (c Category) categoryGetQueryAll(db *sql.DB) (categories []Category, err error) {
+func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err error) {
 	rows, err := db.Query(
-		`SELECT c.id, 
-		c.title, 
+		`SELECT c.id,
+		c.title,
 		` + "c.`desc`," +
-			`c.group_id, 
-		c.trainer_id, 
-		c.created_date, 
-		c.updated_date, 
-		c.created_user, 
-		c.updated_user, 
+			`c.group_id,
+		c.trainer_id,
+		c.created_date,
+		c.updated_date,
+		c.created_user,
+		c.updated_user,
 		COUNT(e.category_id) AS count FROM t_category c left join t_exercise e on e.category_id = c.id group by c.id`)
 	if err != nil {
 		return
@@ -68,7 +68,7 @@ func (c Category) categoryGetQueryAll(db *sql.DB) (categories []Category, err er
 }
 
 // This function is Insert category
-func (c Category) categoryInsertQuery(db *sql.DB) (Id int, err error) {
+func (c Category) insertCategory(db *sql.DB) (Id int, err error) {
 	stmt, err := db.Prepare(
 		"INSERT INTO t_category(title, `desc`, group_id, trainer_id, created_user, updated_user) VALUES(?, ?, ?, ?, ?, ?)")
 	if err != nil {
@@ -92,7 +92,7 @@ func (c Category) categoryInsertQuery(db *sql.DB) (Id int, err error) {
 }
 
 // This function is Select all exercises has category_id
-func (e ExerciseInCatetory) exerciseGetQueryInCategory(category_id int, db *sql.DB) (exercies []ExerciseInCatetory, err error) {
+func (e ExerciseInCatetory) selectExerciseInCategory(category_id int, db *sql.DB) (exercies []ExerciseInCatetory, err error) {
 	rows, err := db.Query(
 		"SELECT id, title, `desc` FROM t_exercise WHERE category_id = ?", category_id)
 	if err != nil {
@@ -110,7 +110,7 @@ func (e ExerciseInCatetory) exerciseGetQueryInCategory(category_id int, db *sql.
 }
 
 // This function is Delete category
-func (c Category) categoryDeleteQuery(db *sql.DB) (rows int, err error) {
+func (c Category) deleteCategory(db *sql.DB) (rows int, err error) {
 	var inCategory int
 	count := db.QueryRow(
 		"SELECT COUNT(e.category_id) AS count FROM t_category c left join t_exercise e on e.category_id = c.id WHERE c.id = ? group by c.id", c.Id)
@@ -150,7 +150,7 @@ func (c Category) categoryDeleteQuery(db *sql.DB) (rows int, err error) {
 }
 
 // This function is Update category
-func (c Category) categoryUpdateQuery(db *sql.DB) (rows int, err error) {
+func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
 	// Case 1 -> Only Change Title, Case 2 -> Only Change Description, Case 3 -> Change Title and Description.
 	if c.Title == "" {
 		stmt, err := db.Prepare(
@@ -220,19 +220,17 @@ func (c Category) categoryUpdateQuery(db *sql.DB) (rows int, err error) {
 	return
 }
 
-func CategoryRouter(router *gin.Engine, db *sql.DB) {
-	category := router.Group("/api/category")
-
-	// GET All Category.
-	// curl http://127.0.0.1:8080/api/category/all -X GET
-	category.GET("/all", func(c *gin.Context) {
+func getAllCategory(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
 		category := Category{}
-		categories, err := category.categoryGetQueryAll(db)
 		nullCategory := [0]Category{}
+		categories, err := category.selectAllCategory(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message": err.Error(),
-				"value":   nullCategory,
+				"paramegers": gin.H{
+					"body": nullCategory,
+				},
 			})
 		} else {
 			switch {
@@ -242,11 +240,13 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 				c.JSON(http.StatusOK, nullCategory)
 			}
 		}
-	})
+	}
 
-	// GET All Exercises in Specific Category.
-	// curl http://127.0.0.1:8080/api/category/exercise/5 -X GET
-	category.GET("/exercise/:category_id", func(c *gin.Context) {
+	return resultFunc
+}
+
+func getExercisesInCategory(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
 		category_id := c.Param("category_id")
 		Category_id, err := strconv.Atoi(category_id)
 		if err != nil {
@@ -261,13 +261,15 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 			return
 		}
 
-		exercise := ExerciseInCatetory{}
-		exercises, err := exercise.exerciseGetQueryInCategory(Category_id, db)
 		nullExercise := [0]ExerciseInCatetory{}
+		exercise := ExerciseInCatetory{}
+		exercises, err := exercise.selectExerciseInCategory(Category_id, db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message": err.Error(),
-				"value":   nullExercise,
+				"paramegers": gin.H{
+					"body": nullExercise,
+				},
 			})
 		} else {
 			switch {
@@ -277,19 +279,19 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 				c.JSON(http.StatusOK, nullExercise) // return []
 			}
 		}
-	})
+	}
 
-	// Create Category
-	// curl http://127.0.0.1:8080/api/category -X POST -d '{"title": "등", "desc": "등 근육의 전반적인 향상", "group_id": 1, "trainer_id": "Choi Trainer","created_user": "Park", "updated_user": "Park"}' -H "Content-Type: application/json"
-	category.POST("/", func(c *gin.Context) {
+	return resultFunc
+}
+
+func postCategory(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
 		category := Category{}
-		err := c.ShouldBindJSON(&category)
-		if err != nil {
+		if err := c.ShouldBindJSON(&category); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"message": err.Error(),
 				"paramters": gin.H{
-					"params": "",
-					"body":   category,
+					"body": category,
 				},
 			})
 			return
@@ -303,36 +305,41 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 		} else {
 			switch {
 			case row == 0:
-				Id, err := category.categoryInsertQuery(db)
+				_, err := category.insertCategory(db)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{
 						"message": err.Error(),
+						"parameters": gin.H{
+							"body": category,
+						},
 					})
 				} else {
-					c.JSON(http.StatusOK, gin.H{
-						"message": fmt.Sprintf("ID : %d Successfully Created", Id),
-					})
+					c.JSON(http.StatusOK, gin.H{})
 				}
 			case row == 1:
 				c.JSON(http.StatusBadRequest, gin.H{
 					"message": fmt.Sprintf("Duplicated Title"),
+					"parameters": gin.H{
+						"body": category,
+					},
 				})
 
 			}
 		}
+	}
 
-	})
+	return resultFunc
+}
 
-	// Delete Specific Category.
-	// curl http://127.0.0.1:8080/api/category/delete/5 -X DELETE
-	category.DELETE("/:category_id", func(c *gin.Context) {
+func deleteCategory(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
 		id := c.Param("category_id")
 		Id, err := strconv.ParseInt(id, 10, 10)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"message": err.Error(),
 				"parameters": gin.H{
-					"parameter": gin.H{
+					"params": gin.H{
 						"category_id": Id,
 					},
 				},
@@ -341,7 +348,7 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 		}
 
 		category := Category{Id: int(Id)}
-		row, err := category.categoryDeleteQuery(db)
+		row, err := category.deleteCategory(db)
 		if err != nil {
 			switch {
 			case strings.Contains(err.Error(), "no rows in result set"):
@@ -362,16 +369,16 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 		} else {
 			switch {
 			case row > 0:
-				c.JSON(http.StatusOK, gin.H{
-					"message": fmt.Sprintf("Successfully Deleted category_id: %d", Id),
-				})
+				c.JSON(http.StatusOK, gin.H{})
 			}
 		}
-	})
+	}
 
-	// Update Specific Category.
-	// curl http://127.0.0.1:8080/api/category/patch/16 -X PATCH -d {"title": "변경된 카테고리", "desc": "Blah Blah.."}
-	category.PATCH("/:category_id", func(c *gin.Context) {
+	return resultFunc
+}
+
+func patchCategory(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
 		id := c.Param("category_id")
 		Id, err := strconv.Atoi(id)
 		if err != nil {
@@ -388,33 +395,59 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 
 		category := Category{}
 		category.Id = Id
-		err = c.ShouldBindJSON(&category)
-		if err != nil {
+		if err = c.ShouldBindJSON(&category); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message": err.Error(),
 				"parameters": gin.H{
 					"parameter": gin.H{
 						"category_id": Id,
+						"body":        category,
 					},
 				},
 			})
 			return
 		}
 
-		row, err := category.categoryUpdateQuery(db)
+		row, err := category.updateCategory(db)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, row)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"message": err.Error(),
+				"value":   row,
+			})
 		} else {
 			switch {
 			case row > 0:
-				c.JSON(http.StatusOK, gin.H{
-					"message": fmt.Sprintf("Successfully Updated category_id: %d", Id),
-				})
+				c.JSON(http.StatusOK, gin.H{})
 			default:
 				c.JSON(http.StatusBadRequest, gin.H{
 					"message": fmt.Sprintf("Nothing Updated, Check category_id: %d", Id),
 				})
 			}
 		}
-	})
+	}
+
+	return resultFunc
+}
+
+func CategoryRouter(router *gin.Engine, db *sql.DB) {
+	category := router.Group("/api/category")
+	// GET All Category.
+	// curl http://127.0.0.1:8080/api/category/all -X GET
+	category.GET("/all", getAllCategory(db))
+
+	// GET All Exercises in Specific Category.
+	// curl http://127.0.0.1:8080/api/category/exercise/5 -X GET
+	category.GET("/exercise/:category_id", getExercisesInCategory(db))
+
+	// Create Category
+	// curl http://127.0.0.1:8080/api/category -X POST -d '{"title": "등", "desc": "등 근육의 전반적인 향상", "group_id": 1, "trainer_id": "Choi Trainer","created_user": "Park", "updated_user": "Park"}' -H "Content-Type: application/json"
+	category.POST("/", postCategory(db))
+
+	// Delete Specific Category.
+	// curl http://127.0.0.1:8080/api/category/delete/5 -X DELETE
+	category.DELETE("/:category_id", deleteCategory(db))
+
+	// Update Specific Category.
+	// curl http://127.0.0.1:8080/api/category/patch/16 -X PATCH -d {"title": "변경된 카테고리", "desc": "Blah Blah.."}
+	category.PATCH("/:category_id", patchCategory(db))
 }
