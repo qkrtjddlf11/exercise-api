@@ -69,11 +69,12 @@ func main() {
 	*/
 	//router.Use(gin.Logger())
 	//router.Use(middlewares.SetHeader)
+
+	controllers.AuthRouter(router, db)
+
 	routes.CategoryRouter(router, db)
 	routes.ExerciseRouter(router, db)
 	routes.TodayExerciseRouter(router, db)
-
-	controllers.AuthRouter(router, db)
 
 	router.Run("0.0.0.0:8080")
 }

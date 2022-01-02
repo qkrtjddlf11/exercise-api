@@ -12,11 +12,11 @@ import (
 )
 
 type Category struct {
-	Id           int     `json:"id"`
+	Seq          int     `json:"seq"`
 	Title        string  `json:"title" binding:"required"`
 	Desc         *string `json:"desc" binding:"required"`
-	Group_Id     int     `json:"group_id" binding:"required"`
-	Trainer_Id   int     `json:"trainer_id" binding:"required"`
+	Group_Id     string  `json:"group_id" binding:"required"`
+	Trainer_Id   string  `json:"trainer_id" binding:"required"`
 	Created_Date *string `json:"created_date"`
 	Updated_Date *string `json:"updated_date"`
 	Created_User string  `json:"created_user" binding:"required"`
@@ -25,7 +25,7 @@ type Category struct {
 }
 
 type ExerciseInCatetory struct {
-	Id    int    `json:"id"`
+	Seq   int    `json:"seq"`
 	Title string `json:"title"`
 	Desc  string `json:"desc"`
 }
@@ -33,7 +33,7 @@ type ExerciseInCatetory struct {
 // This function is that Query all category rows
 func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err error) {
 	rows, err := db.Query(
-		`SELECT c.id,
+		`SELECT c.seq,
 		c.title,
 		` + "c.`desc`," +
 			`c.group_id,
@@ -42,7 +42,7 @@ func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err erro
 		c.updated_date,
 		c.created_user,
 		c.updated_user,
-		COUNT(e.category_id) AS count FROM t_category c left join t_exercise e on e.category_id = c.id group by c.id`)
+		COUNT(e.category_seq) AS count FROM t_category c left join t_exercise e on e.category_seq = c.seq group by c.seq`)
 	if err != nil {
 		return
 	}
@@ -50,7 +50,7 @@ func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err erro
 	for rows.Next() {
 		var category Category
 		rows.Scan(
-			&category.Id,
+			&category.Seq,
 			&category.Title,
 			&category.Desc,
 			&category.Group_Id,
@@ -91,17 +91,17 @@ func (c Category) insertCategory(db *sql.DB) (Id int, err error) {
 	return
 }
 
-// This function is Select all exercises has category_id
-func (e ExerciseInCatetory) selectExerciseInCategory(category_id int, db *sql.DB) (exercies []ExerciseInCatetory, err error) {
+// This function is Select all exercises has category_seq
+func (e ExerciseInCatetory) selectExerciseInCategory(category_seq int, db *sql.DB) (exercies []ExerciseInCatetory, err error) {
 	rows, err := db.Query(
-		"SELECT id, title, `desc` FROM t_exercise WHERE category_id = ?", category_id)
+		"SELECT seq, title, `desc` FROM t_exercise WHERE category_seq = ?", category_seq)
 	if err != nil {
 		return
 	}
 
 	for rows.Next() {
 		var exercise ExerciseInCatetory
-		rows.Scan(&exercise.Id, &exercise.Title, &exercise.Desc)
+		rows.Scan(&exercise.Seq, &exercise.Title, &exercise.Desc)
 		exercies = append(exercies, exercise)
 	}
 	defer rows.Close()
@@ -113,7 +113,7 @@ func (e ExerciseInCatetory) selectExerciseInCategory(category_id int, db *sql.DB
 func (c Category) deleteCategory(db *sql.DB) (rows int, err error) {
 	var inCategory int
 	count := db.QueryRow(
-		"SELECT COUNT(e.category_id) AS count FROM t_category c left join t_exercise e on e.category_id = c.id WHERE c.id = ? group by c.id", c.Id)
+		"SELECT COUNT(e.category_seq) AS count FROM t_category c left join t_exercise e on e.category_seq = c.seq WHERE c.seq = ? group by c.seq", c.Seq)
 	err = count.Scan(&inCategory)
 	if err != nil {
 		rows = 0
@@ -126,13 +126,13 @@ func (c Category) deleteCategory(db *sql.DB) (rows int, err error) {
 	}
 
 	stmt, err := db.Prepare(
-		"DELETE FROM t_category WHERE id = ?")
+		"DELETE FROM t_category WHERE seq = ?")
 	if err != nil {
 		rows = 0
 		return
 	}
 
-	result, err := stmt.Exec(c.Id)
+	result, err := stmt.Exec(c.Seq)
 	if err != nil {
 		rows = 0
 		return
@@ -154,13 +154,13 @@ func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
 	// Case 1 -> Only Change Title, Case 2 -> Only Change Description, Case 3 -> Change Title and Description.
 	if c.Title == "" {
 		stmt, err := db.Prepare(
-			"UPDATE t_category SET `desc` = ?, updated_date = now(), updated_user = ? WHERE id = ?")
+			"UPDATE t_category SET `desc` = ?, updated_date = now(), updated_user = ? WHERE seq = ?")
 		if err != nil {
 			rows = 0
 			return rows, err
 		}
 
-		result, err := stmt.Exec(c.Desc, c.Updated_User, c.Id)
+		result, err := stmt.Exec(c.Desc, c.Updated_User, c.Seq)
 		if err != nil {
 			rows = 0
 			return rows, err
@@ -177,12 +177,12 @@ func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
 		switch {
 		case c.Desc == nil:
 			stmt, err := db.Prepare(
-				"UPDATE t_category SET title = ?, updated_date = now(), updated_user = ? WHERE id = ?")
+				"UPDATE t_category SET title = ?, updated_date = now(), updated_user = ? WHERE seq = ?")
 			if err != nil {
 				rows = 0
 				return rows, err
 			}
-			result, err := stmt.Exec(c.Title, c.Updated_User, c.Id)
+			result, err := stmt.Exec(c.Title, c.Updated_User, c.Seq)
 			if err != nil {
 				rows = 0
 				return rows, err
@@ -197,12 +197,12 @@ func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
 			rows = int(row)
 		default:
 			stmt, err := db.Prepare(
-				"UPDATE t_category SET title = ?, `desc` = ?, updated_date = now(), updated_user = ? WHERE id = ?")
+				"UPDATE t_category SET title = ?, `desc` = ?, updated_date = now(), updated_user = ? WHERE seq = ?")
 			if err != nil {
 				rows = 0
 				return rows, err
 			}
-			result, err := stmt.Exec(c.Title, c.Desc, c.Updated_User, c.Id)
+			result, err := stmt.Exec(c.Title, c.Desc, c.Updated_User, c.Seq)
 			if err != nil {
 				rows = 0
 				return rows, err
@@ -247,14 +247,14 @@ func getAllCategory(db *sql.DB) gin.HandlerFunc {
 
 func getExercisesInCategory(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		category_id := c.Param("category_id")
-		Category_id, err := strconv.Atoi(category_id)
+		category_seq := c.Param("category_seq")
+		Category_Seq, err := strconv.Atoi(category_seq)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"message": err.Error(),
 				"parameters": gin.H{
 					"params": gin.H{
-						"category_id": category_id,
+						"category_seq": category_seq,
 					},
 				},
 			})
@@ -263,7 +263,7 @@ func getExercisesInCategory(db *sql.DB) gin.HandlerFunc {
 
 		nullExercise := [0]ExerciseInCatetory{}
 		exercise := ExerciseInCatetory{}
-		exercises, err := exercise.selectExerciseInCategory(Category_id, db)
+		exercises, err := exercise.selectExerciseInCategory(Category_Seq, db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message": err.Error(),
@@ -316,7 +316,7 @@ func postCategory(db *sql.DB) gin.HandlerFunc {
 				} else {
 					c.JSON(http.StatusOK, gin.H{})
 				}
-			case row == 1:
+			default:
 				c.JSON(http.StatusBadRequest, gin.H{
 					"message": fmt.Sprintf("Duplicated Title"),
 					"parameters": gin.H{
@@ -333,21 +333,21 @@ func postCategory(db *sql.DB) gin.HandlerFunc {
 
 func deleteCategory(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		id := c.Param("category_id")
-		Id, err := strconv.ParseInt(id, 10, 10)
+		seq := c.Param("category_seq")
+		Seq, err := strconv.ParseInt(seq, 10, 10)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"message": err.Error(),
 				"parameters": gin.H{
 					"params": gin.H{
-						"category_id": Id,
+						"category_seq": Seq,
 					},
 				},
 			})
 			return
 		}
 
-		category := Category{Id: int(Id)}
+		category := Category{Seq: int(Seq)}
 		row, err := category.deleteCategory(db)
 		if err != nil {
 			switch {
@@ -356,7 +356,7 @@ func deleteCategory(db *sql.DB) gin.HandlerFunc {
 					"message": err.Error(),
 					"parameters": gin.H{
 						"parameter": gin.H{
-							"category_id": Id,
+							"category_seq": Seq,
 						},
 					},
 				})
@@ -379,14 +379,14 @@ func deleteCategory(db *sql.DB) gin.HandlerFunc {
 
 func patchCategory(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		id := c.Param("category_id")
-		Id, err := strconv.Atoi(id)
+		seq := c.Param("category_seq")
+		Seq, err := strconv.Atoi(seq)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"message": err.Error(),
 				"parameters": gin.H{
 					"parameter": gin.H{
-						"category_id": Id,
+						"category_seq": Seq,
 					},
 				},
 			})
@@ -394,14 +394,14 @@ func patchCategory(db *sql.DB) gin.HandlerFunc {
 		}
 
 		category := Category{}
-		category.Id = Id
+		category.Seq = Seq
 		if err = c.ShouldBindJSON(&category); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"message": err.Error(),
 				"parameters": gin.H{
 					"parameter": gin.H{
-						"category_id": Id,
-						"body":        category,
+						"category_seq": Seq,
+						"body":         category,
 					},
 				},
 			})
@@ -420,7 +420,7 @@ func patchCategory(db *sql.DB) gin.HandlerFunc {
 				c.JSON(http.StatusOK, gin.H{})
 			default:
 				c.JSON(http.StatusBadRequest, gin.H{
-					"message": fmt.Sprintf("Nothing Updated, Check category_id: %d", Id),
+					"message": fmt.Sprintf("Nothing Updated, Check category_seq: %d", Seq),
 				})
 			}
 		}
@@ -437,7 +437,7 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 
 	// GET All Exercises in Specific Category.
 	// curl http://127.0.0.1:8080/api/category/exercise/5 -X GET
-	category.GET("/exercise/:category_id", getExercisesInCategory(db))
+	category.GET("/exercise/:category_seq", getExercisesInCategory(db))
 
 	// Create Category
 	// curl http://127.0.0.1:8080/api/category -X POST -d '{"title": "등", "desc": "등 근육의 전반적인 향상", "group_id": 1, "trainer_id": "Choi Trainer","created_user": "Park", "updated_user": "Park"}' -H "Content-Type: application/json"
@@ -445,9 +445,9 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 
 	// Delete Specific Category.
 	// curl http://127.0.0.1:8080/api/category/delete/5 -X DELETE
-	category.DELETE("/:category_id", deleteCategory(db))
+	category.DELETE("/:category_seq", deleteCategory(db))
 
 	// Update Specific Category.
 	// curl http://127.0.0.1:8080/api/category/patch/16 -X PATCH -d {"title": "변경된 카테고리", "desc": "Blah Blah.."}
-	category.PATCH("/:category_id", patchCategory(db))
+	category.PATCH("/:category_seq", patchCategory(db))
 }
