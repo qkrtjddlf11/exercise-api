@@ -15,7 +15,7 @@ type Category struct {
 	Seq          int     `json:"seq"`
 	Title        string  `json:"title" binding:"required"`
 	Desc         *string `json:"desc" binding:"required"`
-	Group_Id     string  `json:"group_id" binding:"required"`
+	Group_Name   string  `json:"group_name" binding:"required"`
 	Trainer_Id   string  `json:"trainer_id" binding:"required"`
 	Created_Date *string `json:"created_date"`
 	Updated_Date *string `json:"updated_date"`
@@ -36,7 +36,7 @@ func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err erro
 		`SELECT c.seq,
 		c.title,
 		` + "c.`desc`," +
-			`c.group_id,
+			`c.group_name,
 		c.trainer_id,
 		c.created_date,
 		c.updated_date,
@@ -53,7 +53,7 @@ func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err erro
 			&category.Seq,
 			&category.Title,
 			&category.Desc,
-			&category.Group_Id,
+			&category.Group_Name,
 			&category.Trainer_Id,
 			&category.Created_Date,
 			&category.Updated_Date,
@@ -70,13 +70,13 @@ func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err erro
 // This function is Insert category
 func (c Category) insertCategory(db *sql.DB) (Id int, err error) {
 	stmt, err := db.Prepare(
-		"INSERT INTO t_category(title, `desc`, group_id, trainer_id, created_user, updated_user) VALUES(?, ?, ?, ?, ?, ?)")
+		"INSERT INTO t_category(title, `desc`, group_name, trainer_id, created_user, updated_user) VALUES(?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return
 	}
 
 	result, err := stmt.Exec(
-		c.Title, c.Desc, c.Group_Id, c.Trainer_Id, c.Created_User, c.Updated_User)
+		c.Title, c.Desc, c.Group_Name, c.Trainer_Id, c.Created_User, c.Updated_User)
 	if err != nil {
 		return
 	}
@@ -220,24 +220,41 @@ func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
 	return
 }
 
+func categoryFailedResponse(err error, data interface{}) gin.H {
+	result := gin.H{
+		"message": err.Error(),
+		"status":  "fail",
+		"result":  data,
+	}
+
+	return result
+}
+
+func categoryOkResponse(data interface{}) gin.H {
+	result := gin.H{
+		"message": "",
+		"status":  "ok",
+		"result":  data,
+	}
+
+	return result
+}
+
+// Response Data 아래 참고해서 작성.
 func getAllCategory(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		category := Category{}
-		nullCategory := [0]Category{}
 		categories, err := category.selectAllCategory(db)
+		nullCategory := [0]Category{}
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": err.Error(),
-				"paramegers": gin.H{
-					"body": nullCategory,
-				},
-			})
+			c.JSON(http.StatusInternalServerError, categoryFailedResponse(err, nullCategory))
+			fmt.Println("test")
 		} else {
 			switch {
 			case len(categories) > 0:
-				c.JSON(http.StatusOK, categories)
+				c.JSON(http.StatusOK, categoryOkResponse(categories))
 			default:
-				c.JSON(http.StatusOK, nullCategory)
+				c.JSON(http.StatusOK, categoryOkResponse(nullCategory))
 			}
 		}
 	}
@@ -250,14 +267,7 @@ func getExercisesInCategory(db *sql.DB) gin.HandlerFunc {
 		category_seq := c.Param("category_seq")
 		Category_Seq, err := strconv.Atoi(category_seq)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": err.Error(),
-				"parameters": gin.H{
-					"params": gin.H{
-						"category_seq": category_seq,
-					},
-				},
-			})
+			c.JSON(http.StatusBadRequest, categoryFailedResponse(err, category_seq))
 			return
 		}
 
@@ -265,18 +275,13 @@ func getExercisesInCategory(db *sql.DB) gin.HandlerFunc {
 		exercise := ExerciseInCatetory{}
 		exercises, err := exercise.selectExerciseInCategory(Category_Seq, db)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": err.Error(),
-				"paramegers": gin.H{
-					"body": nullExercise,
-				},
-			})
+			c.JSON(http.StatusInternalServerError, categoryFailedResponse(err, nullExercise))
 		} else {
 			switch {
 			case len(exercises) > 0:
-				c.JSON(http.StatusOK, exercises)
+				c.JSON(http.StatusOK, categoryOkResponse(exercises))
 			default:
-				c.JSON(http.StatusOK, nullExercise) // return []
+				c.JSON(http.StatusOK, categoryOkResponse(nullExercise)) // return []
 			}
 		}
 	}
@@ -288,42 +293,24 @@ func postCategory(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		category := Category{}
 		if err := c.ShouldBindJSON(&category); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": err.Error(),
-				"paramters": gin.H{
-					"body": category,
-				},
-			})
+			c.JSON(http.StatusBadRequest, categoryFailedResponse(err, category))
 			return
 		}
 
 		row, err := common.DuplicatedTitleCheck("t_category", category.Title, db)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, categoryFailedResponse(err, row))
 		} else {
 			switch {
 			case row == 0:
-				_, err := category.insertCategory(db)
+				Id, err := category.insertCategory(db)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"message": err.Error(),
-						"parameters": gin.H{
-							"body": category,
-						},
-					})
+					c.JSON(http.StatusInternalServerError, categoryFailedResponse(err, Id))
 				} else {
-					c.JSON(http.StatusOK, gin.H{})
+					c.JSON(http.StatusCreated, categoryOkResponse(Id))
 				}
 			default:
-				c.JSON(http.StatusBadRequest, gin.H{
-					"message": fmt.Sprintf("Duplicated Title"),
-					"parameters": gin.H{
-						"body": category,
-					},
-				})
-
+				c.JSON(http.StatusCreated, categoryOkResponse(row))
 			}
 		}
 	}
@@ -336,14 +323,7 @@ func deleteCategory(db *sql.DB) gin.HandlerFunc {
 		seq := c.Param("category_seq")
 		Seq, err := strconv.ParseInt(seq, 10, 10)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": err.Error(),
-				"parameters": gin.H{
-					"params": gin.H{
-						"category_seq": Seq,
-					},
-				},
-			})
+			c.JSON(http.StatusBadRequest, categoryFailedResponse(err, seq))
 			return
 		}
 
@@ -352,25 +332,12 @@ func deleteCategory(db *sql.DB) gin.HandlerFunc {
 		if err != nil {
 			switch {
 			case strings.Contains(err.Error(), "no rows in result set"):
-				c.JSON(http.StatusBadRequest, gin.H{
-					"message": err.Error(),
-					"parameters": gin.H{
-						"parameter": gin.H{
-							"category_seq": Seq,
-						},
-					},
-				})
+				c.JSON(http.StatusBadRequest, categoryFailedResponse(err, row))
 			default:
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"message": err.Error(),
-				})
+				c.JSON(http.StatusInternalServerError, categoryFailedResponse(err, row))
 			}
-
 		} else {
-			switch {
-			case row > 0:
-				c.JSON(http.StatusOK, gin.H{})
-			}
+			c.JSON(http.StatusCreated, categoryOkResponse(row))
 		}
 	}
 
@@ -382,47 +349,22 @@ func patchCategory(db *sql.DB) gin.HandlerFunc {
 		seq := c.Param("category_seq")
 		Seq, err := strconv.Atoi(seq)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": err.Error(),
-				"parameters": gin.H{
-					"parameter": gin.H{
-						"category_seq": Seq,
-					},
-				},
-			})
+			c.JSON(http.StatusBadRequest, categoryFailedResponse(err, seq))
 			return
 		}
 
 		category := Category{}
 		category.Seq = Seq
 		if err = c.ShouldBindJSON(&category); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": err.Error(),
-				"parameters": gin.H{
-					"parameter": gin.H{
-						"category_seq": Seq,
-						"body":         category,
-					},
-				},
-			})
+			c.JSON(http.StatusBadRequest, categoryFailedResponse(err, category))
 			return
 		}
 
 		row, err := category.updateCategory(db)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": err.Error(),
-				"value":   row,
-			})
+			c.JSON(http.StatusInternalServerError, categoryFailedResponse(err, row))
 		} else {
-			switch {
-			case row > 0:
-				c.JSON(http.StatusOK, gin.H{})
-			default:
-				c.JSON(http.StatusBadRequest, gin.H{
-					"message": fmt.Sprintf("Nothing Updated, Check category_seq: %d", Seq),
-				})
-			}
+			c.JSON(http.StatusCreated, categoryOkResponse(row))
 		}
 	}
 
@@ -440,7 +382,7 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 	category.GET("/exercise/:category_seq", getExercisesInCategory(db))
 
 	// Create Category
-	// curl http://127.0.0.1:8080/api/category -X POST -d '{"title": "등", "desc": "등 근육의 전반적인 향상", "group_id": 1, "trainer_id": "Choi Trainer","created_user": "Park", "updated_user": "Park"}' -H "Content-Type: application/json"
+	// curl http://127.0.0.1:8080/api/category -X POST -d '{"title": "등", "desc": "등 근육의 전반적인 향상", "group_name": "dygym", "trainer_id": "Choi Trainer","created_user": "Park", "updated_user": "Park"}' -H "Content-Type: application/json"
 	category.POST("/", postCategory(db))
 
 	// Delete Specific Category.

@@ -2,7 +2,6 @@ package routes
 
 import (
 	"database/sql"
-	"fmt"
 	"net/http"
 	"strconv"
 
@@ -14,8 +13,7 @@ type Exercise struct {
 	Seq          int     `json:"seq"`
 	Title        string  `json:"title" binding:"required"`
 	Desc         *string `json:"desc"`
-	User_Id      string  `json:"user_id"`
-	Group_Id     string  `json:"group_id"`
+	Group_Name   string  `json:"group_name"`
 	Trainer_Id   string  `json:"trainer_id"`
 	Created_Date *string `json:"created_date"`
 	Updated_Date *string `json:"updated_date"`
@@ -30,8 +28,7 @@ func (e Exercise) selectAllExercise(db *sql.DB) (exercises []Exercise, err error
 		`SELECT seq, 
 		title,
 		` + "`desc`," +
-			`user_id,
-		group_id,
+			`group_name,
 		trainer_id,
 		created_date, 
 		updated_date,
@@ -48,8 +45,7 @@ func (e Exercise) selectAllExercise(db *sql.DB) (exercises []Exercise, err error
 			&exercise.Seq,
 			&exercise.Title,
 			&exercise.Desc,
-			&exercise.User_Id,
-			&exercise.Group_Id,
+			&exercise.Group_Name,
 			&exercise.Trainer_Id,
 			&exercise.Created_Date,
 			&exercise.Updated_Date,
@@ -65,13 +61,13 @@ func (e Exercise) selectAllExercise(db *sql.DB) (exercises []Exercise, err error
 
 func (e Exercise) insertExercise(db *sql.DB) (Id int, err error) {
 	stmt, err := db.Prepare(
-		"INSERT INTO t_exercise(title, `desc`, user_id, group_id, trainer_id, created_user, updated_user, category_seq) VALUE(?, ?, ?, ?, ?, ?, ?, ?)")
+		"INSERT INTO t_exercise(title, `desc`, group_name, trainer_id, created_user, updated_user, category_seq) VALUE(?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		return
 	}
 
 	result, err := stmt.Exec(
-		e.Title, e.Desc, e.User_Id, e.Group_Id, e.Trainer_Id, e.Created_User, e.Updated_User, e.Category_Seq)
+		e.Title, e.Desc, e.Group_Name, e.Trainer_Id, e.Created_User, e.Updated_User, e.Category_Seq)
 	if err != nil {
 		return
 	}
@@ -180,22 +176,41 @@ func (e Exercise) updateExercise(db *sql.DB) (rows int, err error) {
 	return
 }
 
+func exerciseFailedResponse(err error, data interface{}) gin.H {
+	result := gin.H{
+		"message": err.Error(),
+		"status":  "failed",
+		"result":  data,
+	}
+
+	return result
+}
+
+func exerciseOkResponse(data interface{}) gin.H {
+	result := gin.H{
+		"message": "",
+		"status":  "ok",
+		"result":  data,
+	}
+
+	return result
+}
+
 func getExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		exercise := Exercise{}
 		exercises, err := exercise.selectAllExercise(db)
+		nullExercise := [0]Exercise{}
 		if err != nil {
-			nullExercise := [0]Exercise{}
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": err.Error(),
-				"parameters": gin.H{
-					"params": gin.H{
-						"body": nullExercise,
-					},
-				},
-			})
+			c.JSON(http.StatusInternalServerError, exerciseFailedResponse(err, nullExercise))
 		} else {
-			c.JSON(http.StatusOK, exercises)
+			switch {
+			default:
+				c.JSON(http.StatusOK, exerciseOkResponse(exercises))
+			case len(exercises) == 0:
+				c.JSON(http.StatusOK, exerciseOkResponse(nullExercise))
+			}
+
 		}
 	}
 
@@ -207,53 +222,30 @@ func postExercise(db *sql.DB) gin.HandlerFunc {
 		category_seq := c.Param("category_seq")
 		exercise := Exercise{}
 		if err := c.Bind(&exercise); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": err.Error(),
-				"parameters": gin.H{
-					"params": gin.H{
-						"category_seq": category_seq,
-					},
-					"body": exercise,
-				},
-			})
+			c.JSON(http.StatusBadRequest, exerciseFailedResponse(err, category_seq))
 			return
 		}
 
 		row, err := common.DuplicatedTitleCheck("t_exercise", exercise.Title, db)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": err.Error(),
-				"parameters": gin.H{
-					"params": gin.H{
-						"title": exercise.Title,
-					},
-				},
-			})
+			c.JSON(http.StatusInternalServerError, exerciseFailedResponse(err, exercise.Title))
 		} else {
 			switch {
 			case row == 0:
 				exercise.Category_Seq, err = strconv.Atoi(category_seq)
 				if err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{
-						"message": err.Error(),
-					})
+					c.JSON(http.StatusBadRequest, exerciseFailedResponse(err, category_seq))
 					return
 				}
 
 				Seq, err := exercise.insertExercise(db)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"message": err.Error(),
-					})
+					c.JSON(http.StatusInternalServerError, exerciseFailedResponse(err, exercise))
 				} else {
-					c.JSON(http.StatusOK, gin.H{
-						"message": fmt.Sprintf(" %d Successfully Created", Seq),
-					})
+					c.JSON(http.StatusCreated, exerciseOkResponse(Seq))
 				}
 			default:
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"message": fmt.Sprintf("Duplicated Title"),
-				})
+				c.JSON(http.StatusCreated, exerciseOkResponse(row))
 			}
 		}
 	}
@@ -266,28 +258,16 @@ func deleteExercise(db *sql.DB) gin.HandlerFunc {
 		seq := c.Param("exercise_seq")
 		Seq, err := strconv.ParseInt(seq, 10, 10)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, exerciseFailedResponse(err, seq))
 			return
 		}
 
 		exercise := Exercise{Seq: int(Seq)}
 		rows, err := exercise.deleteExercise(db)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, exerciseFailedResponse(err, rows))
 		} else {
-			if rows > 0 {
-				c.JSON(http.StatusOK, gin.H{
-					"message": fmt.Sprintf("Successfully Deleted exercise_seq: %d", Seq),
-				})
-			} else {
-				c.JSON(http.StatusOK, gin.H{
-					"message": fmt.Sprintf("Nothing Deleted exercise_seq : %d", Seq),
-				})
-			}
+			c.JSON(http.StatusCreated, exerciseOkResponse(rows))
 		}
 	}
 
@@ -299,9 +279,7 @@ func patchExercise(db *sql.DB) gin.HandlerFunc {
 		seq := c.Param("exercise_seq")
 		Seq, err := strconv.Atoi(seq)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, exerciseFailedResponse(err, seq))
 			return
 		}
 
@@ -309,27 +287,15 @@ func patchExercise(db *sql.DB) gin.HandlerFunc {
 		exercise.Seq = Seq
 		err = c.Bind(&exercise)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, exerciseFailedResponse(err, exercise))
 			return
 		}
 
 		rows, err := exercise.updateExercise(db)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, exerciseFailedResponse(err, rows))
 		} else {
-			if rows > 0 {
-				c.JSON(http.StatusOK, gin.H{
-					"message": fmt.Sprintf("Successfully Updated exercise_seq : %d", Seq),
-				})
-			} else {
-				c.JSON(http.StatusOK, gin.H{
-					"message": fmt.Sprintf("Nothing Updated, Check exercise_seq : %d", Seq),
-				})
-			}
+			c.JSON(http.StatusCreated, exerciseOkResponse(rows))
 		}
 	}
 

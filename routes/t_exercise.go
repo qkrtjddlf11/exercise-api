@@ -11,7 +11,7 @@ import (
 type TodayExercise struct {
 	Seq          int     `json:"seq"`
 	Trainer_Id   string  `json:"trainer_id"`
-	Group_Id     string  `json:"group_id"`
+	Group_Name   string  `json:"group_name"`
 	Exercises    string  `json:"exercises"`
 	Created_Date *string `json:"created_date"`
 	Updated_Date *string `json:"updated_date"`
@@ -22,14 +22,14 @@ type TodayExercise struct {
 
 func (td TodayExercise) todayExerciseInsertQuery(db *sql.DB) (Seq int, err error) {
 	stmt, err := db.Prepare(
-		"INSERT INTO t_today_exercises(trainer_id, group_id, exercises, created_user, updated_user, user_id) VALUES(?, ?, ?, ?, ?, ?)")
+		"INSERT INTO t_today_exercises(trainer_id, group_name, exercises, created_user, updated_user, user_id) VALUES(?, ?, ?, ?, ?, ?)")
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
 	result, err := stmt.Exec(
-		td.Trainer_Id, td.Group_Id, td.Exercises, td.Created_User, td.Updated_User, td.User_Id)
+		td.Trainer_Id, td.Group_Name, td.Exercises, td.Created_User, td.Updated_User, td.User_Id)
 	if err != nil {
 		fmt.Println(err)
 		return
