@@ -13,7 +13,7 @@ import (
 type Category struct {
 	Seq          int     `json:"seq"`
 	Title        string  `json:"title" binding:"required"`
-	Desc         *string `json:"desc" binding:"required"`
+	Desc         *string `json:"desc"`
 	Group_Name   string  `json:"group_name" binding:"required"`
 	Trainer_Id   string  `json:"trainer_id" binding:"required"`
 	Created_Date *string `json:"created_date"`
@@ -138,13 +138,13 @@ func (c Category) deleteCategory(db *sql.DB) (rows int, err error) {
 	}
 
 	stmt, err := db.Prepare(
-		"DELETE FROM t_category WHERE seq = ?")
+		"DELETE FROM t_category WHERE seq = ? AND trainer_id = ? AND group_name = ?")
 	if err != nil {
 		rows = 0
 		return
 	}
 
-	result, err := stmt.Exec(c.Seq)
+	result, err := stmt.Exec(c.Seq, c.Trainer_Id, c.Group_Name)
 	if err != nil {
 		rows = 0
 		return
@@ -232,17 +232,10 @@ func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
 	return
 }
 
-func getQueryString(c *gin.Context) (trainer_id string, group_name string) {
-	trainer_id = c.Query("trainer_id")
-	group_name = c.Query("group_name")
-
-	return
-}
-
 func getAllCategory(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		nullCategory := [0]Category{}
-		trainer_id, group_name := getQueryString(c)
+		trainer_id, group_name := common.GetQueryString(c)
 		category := Category{}
 		category.Trainer_Id, category.Group_Name = trainer_id, group_name
 		categories, err := category.selectAllCategory(db)
@@ -271,7 +264,7 @@ func getExercisesInCategory(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		trainer_id, group_name := getQueryString(c)
+		trainer_id, group_name := common.GetQueryString(c)
 		exercise := ExerciseInCatetory{}
 		exercise.Trainer_Id, exercise.Group_Name = trainer_id, group_name
 		exercises, err := exercise.selectExerciseInCategory(Category_Seq, db)
@@ -328,7 +321,7 @@ func deleteCategory(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		trainer_id, group_name := getQueryString(c)
+		trainer_id, group_name := common.GetQueryString(c)
 		category := Category{}
 		category.Seq, category.Trainer_Id, category.Group_Name = Seq, trainer_id, group_name
 		row, err := category.deleteCategory(db)
@@ -356,7 +349,7 @@ func patchCategory(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		trainer_id, group_name := getQueryString(c)
+		trainer_id, group_name := common.GetQueryString(c)
 		category := Category{}
 		category.Seq, category.Trainer_Id, category.Group_Name = Seq, trainer_id, group_name
 		if err = c.ShouldBindJSON(&category); err != nil {
@@ -378,10 +371,11 @@ func patchCategory(db *sql.DB) gin.HandlerFunc {
 func CategoryRouter(router *gin.Engine, db *sql.DB) {
 	category := router.Group("/api/category")
 	// GET All Category.
-	// curl http://127.0.0.1:8080/api/category/all -X GET
+	// curl http://127.0.0.1:8080/api/category/all?trainer_id=Park&group_name=dygym -X GET
 	category.GET("/all", getAllCategory(db))
+
 	// GET All Exercises in Specific Category.
-	// curl http://127.0.0.1:8080/api/category/exercise/5 -X GET
+	// curl http://127.0.0.1:8080/api/category/exercise/2?trainer_id=Park&group_name=dygym -X GET
 	category.GET("/exercise/:category_seq", getExercisesInCategory(db))
 
 	// Create Category

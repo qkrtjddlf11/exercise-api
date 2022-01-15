@@ -85,12 +85,12 @@ func (e Exercise) insertExercise(db *sql.DB) (Id int, err error) {
 
 func (e Exercise) deleteExercise(db *sql.DB) (rows int, err error) {
 	stmt, err := db.Prepare(
-		"DELETE FROM t_exercise WHERE seq = ?")
+		"DELETE FROM t_exercise WHERE seq = ? AND trainer_id = ? AND group_name = ?")
 	if err != nil {
 		return
 	}
 
-	result, err := stmt.Exec(e.Seq)
+	result, err := stmt.Exec(e.Seq, e.Trainer_Id, e.Group_Name)
 	if err != nil {
 		return
 	}
@@ -178,8 +178,7 @@ func (e Exercise) updateExercise(db *sql.DB) (rows int, err error) {
 
 func getExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		trainer_id := c.Query("trainer_id")
-		group_name := c.Query("group_name")
+		trainer_id, group_name := common.GetQueryString(c)
 		exercise := Exercise{}
 		exercise.Trainer_Id, exercise.Group_Name = trainer_id, group_name
 		exercises, err := exercise.selectAllExercise(db)
@@ -239,13 +238,15 @@ func postExercise(db *sql.DB) gin.HandlerFunc {
 func deleteExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		seq := c.Param("exercise_seq")
-		Seq, err := strconv.ParseInt(seq, 10, 10)
+		Seq, err := strconv.Atoi(seq)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, common.FailedResponse(err, seq))
 			return
 		}
 
-		exercise := Exercise{Seq: int(Seq)}
+		trainer_id, group_name := common.GetQueryString(c)
+		exercise := Exercise{}
+		exercise.Seq, exercise.Trainer_Id, exercise.Group_Name = Seq, trainer_id, group_name
 		rows, err := exercise.deleteExercise(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, rows))
@@ -266,8 +267,9 @@ func patchExercise(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		trainer_id, group_name := common.GetQueryString(c)
 		exercise := Exercise{}
-		exercise.Seq = Seq
+		exercise.Seq, exercise.Trainer_Id, exercise.Group_Name = Seq, trainer_id, group_name
 		err = c.Bind(&exercise)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, common.FailedResponse(err, exercise))
@@ -289,7 +291,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 	exercise := router.Group("/api/exercise")
 
 	// GET All Exercise.
-	// curl http://127.0.0.1:8080/api/exercise/all -X GET
+	// curl http://127.0.0.1:8080/api/exercise/all?trainer_id=Lee&group_name=kygym -X GET
 	exercise.GET("/all", getExercise(db))
 
 	// Create Specific Exercise.
@@ -297,7 +299,7 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 	exercise.POST("/:category_seq", postExercise(db))
 
 	// Delete Specific Exercise.
-	// curl http://127.0.0.1:8080/api/exercise/5 -X DELETE
+	// curl http://127.0.0.1:8080/api/exercise/2?trainer_id=Lee&group_name=kygym -X DELETE
 	exercise.DELETE("/:exercise_seq", deleteExercise(db))
 
 	// Update Specific Exercise.

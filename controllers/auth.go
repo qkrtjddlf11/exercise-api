@@ -2,11 +2,17 @@ package controllers
 
 import (
 	"database/sql"
-	"fmt"
 	"net/http"
 
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
 	"github.com/qkrtjddlf11/exercise-api/common"
+)
+
+const (
+	userId   = "parka"
+	passWord = "1111"
 )
 
 type User struct {
@@ -49,38 +55,24 @@ func postUser(db *sql.DB) gin.HandlerFunc {
 		user := User{}
 		err := c.ShouldBindJSON(&user)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"message": err.Error(),
-				"parameters": gin.H{
-					"body": user,
-				},
-			})
+			c.JSON(http.StatusBadRequest, common.FailedResponse(err, user))
 			return
 		}
 
 		count, err := common.DuplicatedUserIdCheck("t_user", user.User_Id, db)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"message": err.Error(),
-			})
+			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, count))
 		} else {
 			switch {
 			case count == 0:
 				_, err = user.insertUser(db)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"message": err.Error(),
-					})
+					c.JSON(http.StatusInternalServerError, common.FailedResponse(err, count))
 				} else {
-					c.JSON(http.StatusOK, gin.H{})
+					c.JSON(http.StatusOK, common.SucceedResponse(user))
 				}
 			default:
-				c.JSON(http.StatusBadRequest, gin.H{
-					"message": fmt.Sprintf("Duplicated user_id"),
-					"parameters": gin.H{
-						"body": user,
-					},
-				})
+				c.JSON(http.StatusBadRequest, common.FailedResponse(err, count))
 			}
 		}
 
@@ -89,8 +81,76 @@ func postUser(db *sql.DB) gin.HandlerFunc {
 	return resultFunc
 }
 
+func loginUser(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
+		session := sessions.Default(c)
+		user_id := c.PostForm("user_id")
+		password := c.PostForm("password")
+		if user_id != userId || password != passWord {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication failed"})
+			return
+		}
+
+		session.Set(user_id, user_id)
+		if err := session.Save(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Successfully authenticated user"})
+	}
+
+	return resultFunc
+}
+
+func logoutUser(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
+		session := sessions.Default(c)
+		userSession := session.Get("park")
+		if userSession == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid session token"})
+			return
+		}
+
+		session.Delete("park")
+		if err := session.Save(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save session"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Successfully logged out"})
+	}
+
+	return resultFunc
+}
+
+func authRequired(c *gin.Context) {
+	session := sessions.Default(c)
+	userSesssion := session.Get("park")
+	if userSesssion == nil {
+		// Abort the request with the appropriate error code
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	c.Next()
+}
+
 func AuthRouter(router *gin.Engine, db *sql.DB) {
 	public := router.Group("/api/auth")
 
 	public.POST("/register", postUser(db))
+
+	store := cookie.NewStore([]byte("secretKey"))
+	public.Use(sessions.Sessions("mysession", store))
+	public.POST("/login", loginUser(db))
+	public.GET("/logout", logoutUser(db))
+	public.Use(authRequired)
+	{
+		public.GET("/me", me)
+	}
+}
+
+func me(c *gin.Context) {
+	session := sessions.Default(c)
+	user := session.Get("parka")
+	c.JSON(http.StatusOK, gin.H{"user": user})
 }
