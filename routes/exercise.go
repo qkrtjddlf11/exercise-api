@@ -25,16 +25,18 @@ type Exercise struct {
 // This function is that Query all exercise rows
 func (e Exercise) selectAllExercise(db *sql.DB) (exercises []Exercise, err error) {
 	rows, err := db.Query(
-		`SELECT seq, 
-		title,
-		`+"`desc`,"+
+		`SELECT 
+			seq, 
+			title,
+			`+"`desc`,"+
 			`group_name,
-		trainer_id,
-		created_date, 
-		updated_date,
-		created_user,
-		updated_user, 
-		category_seq FROM t_exercise WHERE trainer_id = ? AND group_name = ?`, e.Trainer_Id, e.Group_Name)
+			trainer_id,
+			created_date, 
+			updated_date,
+			created_user,
+			updated_user, 
+			category_seq FROM t_exercise 
+		WHERE trainer_id = ? AND group_name = ?`, e.Trainer_Id, e.Group_Name)
 	if err != nil {
 		return
 	}
@@ -61,7 +63,15 @@ func (e Exercise) selectAllExercise(db *sql.DB) (exercises []Exercise, err error
 
 func (e Exercise) insertExercise(db *sql.DB) (Id int, err error) {
 	stmt, err := db.Prepare(
-		"INSERT INTO t_exercise(title, `desc`, group_name, trainer_id, created_user, updated_user, category_seq) VALUE(?, ?, ?, ?, ?, ?, ?, ?)")
+		`INSERT INTO 
+			t_exercise(title, 
+				` + "`desc`," + `
+				group_name, 
+				trainer_id, 
+				created_user, 
+				updated_user, 
+				category_seq) 
+			VALUE(?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return
 	}
@@ -85,7 +95,8 @@ func (e Exercise) insertExercise(db *sql.DB) (Id int, err error) {
 
 func (e Exercise) deleteExercise(db *sql.DB) (rows int, err error) {
 	stmt, err := db.Prepare(
-		"DELETE FROM t_exercise WHERE seq = ? AND trainer_id = ? AND group_name = ?")
+		`DELETE FROM t_exercise 
+		WHERE seq = ? AND trainer_id = ? AND group_name = ?`)
 	if err != nil {
 		return
 	}
@@ -108,7 +119,12 @@ func (e Exercise) updateExercise(db *sql.DB) (rows int, err error) {
 	// Case 1 -> Only Change Title, Case 2 -> Only Change Description, Case 3 -> Change Title and Description.
 	if len(e.Title) == 0 || e.Title == "" {
 		stmt, err := db.Prepare(
-			"UPDATE t_exercise SET `desc` = ?, updated_date = now(), updated_user = ? WHERE seq = ?")
+			`UPDATE t_exercise 
+				SET 
+					` + "`desc`" + `= ?, 
+					pdated_date = now(), 
+					updated_user = ? 
+				WHERE seq = ?`)
 		if err != nil {
 			rows = 0
 			return rows, err
@@ -131,7 +147,12 @@ func (e Exercise) updateExercise(db *sql.DB) (rows int, err error) {
 		switch {
 		case e.Desc == nil:
 			stmt, err := db.Prepare(
-				"UPDATE t_exercise SET title = ?, updated_date = now(), updated_user = ? WHERE seq = ?")
+				`UPDATE t_exercise 
+					SET 
+						title = ?, 
+						updated_date = now(), 
+						updated_user = ? 
+					WHERE seq = ?`)
 			if err != nil {
 				rows = 0
 				return rows, err
@@ -152,7 +173,13 @@ func (e Exercise) updateExercise(db *sql.DB) (rows int, err error) {
 			rows = int(row)
 		default:
 			stmt, err := db.Prepare(
-				"UPDATE t_exercise SET title = ?, `desc` = ?, updated_date = now(), updated_user = ? WHERE seq = ?")
+				`UPDATE t_exercise 
+					SET 
+						title = ?, 
+						` + "`desc`" + `= ?, 
+						updated_date = now(), 
+						updated_user = ? 
+					WHERE seq = ?`)
 			if err != nil {
 				rows = 0
 				return rows, err

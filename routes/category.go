@@ -34,16 +34,17 @@ type ExerciseInCatetory struct {
 // This function is that Query all category rows
 func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err error) {
 	rows, err := db.Query(
-		`SELECT c.seq,
-		c.title,
-		`+"c.`desc`,"+
+		`SELECT 
+			c.seq,
+			c.title,
+			`+"c.`desc`,"+
 			`c.group_name,
-		c.trainer_id,
-		c.created_date,
-		c.updated_date,
-		c.created_user,
-		c.updated_user,
-		COUNT(e.category_seq) AS count 
+			c.trainer_id,
+			c.created_date,
+			c.updated_date,
+			c.created_user,
+			c.updated_user,
+			COUNT(e.category_seq) AS count 
 		FROM t_category c left join t_exercise e on e.category_seq = c.seq 
 		WHERE c.trainer_id = ? AND c.group_name = ? GROUP BY c.seq`, c.Trainer_Id, c.Group_Name)
 	if err != nil {
@@ -73,7 +74,14 @@ func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err erro
 // This function is Insert category
 func (c Category) insertCategory(db *sql.DB) (Id int, err error) {
 	stmt, err := db.Prepare(
-		"INSERT INTO t_category(title, `desc`, group_name, trainer_id, created_user, updated_user) VALUES(?, ?, ?, ?, ?, ?)")
+		`INSERT INTO 
+			t_category(title,
+				` + "`desc`," + ` 
+				group_name, 
+				trainer_id, 
+				created_user, 
+				updated_user) 
+			VALUES(?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return
 	}
@@ -103,7 +111,7 @@ func (e ExerciseInCatetory) selectExerciseInCategory(category_seq int, db *sql.D
 			`+"`desc`,"+` 
 			trainer_id, 
 			group_name FROM t_exercise 
-			WHERE category_seq = ? AND trainer_id = ? AND group_name = ?`, category_seq, e.Trainer_Id, e.Group_Name)
+		WHERE category_seq = ? AND trainer_id = ? AND group_name = ?`, category_seq, e.Trainer_Id, e.Group_Name)
 	if err != nil {
 		return
 	}
@@ -124,8 +132,8 @@ func (c Category) deleteCategory(db *sql.DB) (rows int, err error) {
 	count := db.QueryRow(
 		`SELECT 
 			COUNT(e.category_seq) AS count 
-			FROM t_category c left join t_exercise e on e.category_seq = c.seq 
-			WHERE c.seq = ? AND e.trainer_id = ? AND e.group_name = ? group by c.seq`, c.Seq, c.Trainer_Id, c.Group_Name)
+		FROM t_category c left join t_exercise e on e.category_seq = c.seq 
+		WHERE c.seq = ? AND e.trainer_id = ? AND e.group_name = ? group by c.seq`, c.Seq, c.Trainer_Id, c.Group_Name)
 	err = count.Scan(&inCategory)
 	if err != nil {
 		rows = 0
@@ -138,7 +146,8 @@ func (c Category) deleteCategory(db *sql.DB) (rows int, err error) {
 	}
 
 	stmt, err := db.Prepare(
-		"DELETE FROM t_category WHERE seq = ? AND trainer_id = ? AND group_name = ?")
+		`DELETE FROM t_category 
+		WHERE seq = ? AND trainer_id = ? AND group_name = ?`)
 	if err != nil {
 		rows = 0
 		return
@@ -166,7 +175,11 @@ func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
 	// Case 1 -> Only Change Title, Case 2 -> Only Change Description, Case 3 -> Change Title and Description.
 	if c.Title == "" {
 		stmt, err := db.Prepare(
-			"UPDATE t_category SET `desc` = ?, updated_date = now(), updated_user = ? WHERE seq = ?")
+			`UPDATE t_category 
+				SET ` + "`desc`" + `= ?, 
+					updated_date = now(), 
+					updated_user = ? 
+				WHERE seq = ?`)
 		if err != nil {
 			rows = 0
 			return rows, err
@@ -189,7 +202,11 @@ func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
 		switch {
 		case c.Desc == nil:
 			stmt, err := db.Prepare(
-				"UPDATE t_category SET title = ?, updated_date = now(), updated_user = ? WHERE seq = ?")
+				`UPDATE t_category 
+					SET title = ?, 
+						updated_date = now(), 
+						updated_user = ? 
+					WHERE seq = ?`)
 			if err != nil {
 				rows = 0
 				return rows, err
@@ -209,7 +226,12 @@ func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
 			rows = int(row)
 		default:
 			stmt, err := db.Prepare(
-				"UPDATE t_category SET title = ?, `desc` = ?, updated_date = now(), updated_user = ? WHERE seq = ?")
+				`UPDATE t_category 
+					SET title = ?,
+						` + "`desc`" + `= ?, 
+						updated_date = now(), 
+						updated_user = ? 
+					WHERE seq = ?`)
 			if err != nil {
 				rows = 0
 				return rows, err

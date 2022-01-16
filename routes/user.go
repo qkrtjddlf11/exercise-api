@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/qkrtjddlf11/exercise-api/common"
 )
 
 /*
@@ -39,40 +40,20 @@ type User struct {
 	Use_Yn       string `json:"use_yn"`
 }
 
-func userOkResponse(data interface{}) gin.H {
-	result := gin.H{
-		"message": "",
-		"status":  "ok",
-		"result":  data,
-	}
-
-	return result
-}
-
-func userFailedResponse(err error, data interface{}) gin.H {
-	result := gin.H{
-		"message": err.Error(),
-		"status":  "fail",
-		"result":  data,
-	}
-
-	return result
-}
-
 func (u User) selectAllUser(db *sql.DB) (users []User, err error) {
 	rows, err := db.Query(
-		`SELECT seq, 
-		name,
-		id,
-		group_name,
-		trainer_id,
-		created_date,
-		updated_date,
-		created_user,
-		updated_user,
-		password,
-		email,
-		use_yn FROM t_user`)
+		`SELECT 
+			seq, 
+			name,
+			trainer_id,
+			group_name,
+			created_date,
+			updated_date,
+			created_user,
+			updated_user,
+			email,
+			use_yn FROM t_user
+		WHERE trainer_id = ? AND group_name = ?`, u.Trainer_Id, u.Group_Name)
 	if err != nil {
 		return
 	}
@@ -80,18 +61,16 @@ func (u User) selectAllUser(db *sql.DB) (users []User, err error) {
 	for rows.Next() {
 		var user User
 		rows.Scan(
-			&u.Seq,
-			&u.Name,
-			&u.Id,
-			&u.Password,
-			&u.Email,
-			&u.Group_Name,
-			&u.Trainer_Id,
-			&u.Created_Date,
-			&u.Updated_Date,
-			&u.Created_User,
-			&u.Updated_User,
-			&u.Use_Yn)
+			&user.Seq,
+			&user.Name,
+			&user.Trainer_Id,
+			&user.Group_Name,
+			&user.Created_Date,
+			&user.Updated_Date,
+			&user.Created_User,
+			&user.Updated_User,
+			&user.Email,
+			&user.Use_Yn)
 		users = append(users, user)
 	}
 	defer rows.Close()
@@ -101,13 +80,14 @@ func (u User) selectAllUser(db *sql.DB) (users []User, err error) {
 
 func getAllUserList(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		user := User{}
+		trainer_id, group_name := common.GetQueryString(c)
+		user := User{Trainer_Id: trainer_id, Group_Name: group_name}
 		users, err := user.selectAllUser(db)
 		if err != nil {
 			nullUsers := [0]User{}
-			c.JSON(http.StatusInternalServerError, userFailedResponse(err, nullUsers))
+			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, nullUsers))
 		} else {
-			c.JSON(http.StatusOK, userOkResponse(users))
+			c.JSON(http.StatusOK, common.SucceedResponse(users))
 		}
 	}
 
