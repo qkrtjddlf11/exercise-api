@@ -7,19 +7,20 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 	"github.com/qkrtjddlf11/exercise-api/common"
 )
 
 type Category struct {
 	Seq          int     `json:"seq"`
-	Title        string  `json:"title" binding:"required"`
+	Title        string  `json:"title"`
 	Desc         *string `json:"desc"`
-	Group_Name   string  `json:"group_name" binding:"required"`
-	Trainer_Id   string  `json:"trainer_id" binding:"required"`
+	Group_Name   string  `json:"group_name"`
+	Trainer_Id   string  `json:"trainer_id"`
 	Created_Date *string `json:"created_date"`
 	Updated_Date *string `json:"updated_date"`
-	Created_User string  `json:"created_user" binding:"required"`
-	Updated_User string  `json:"updated_user" binding:"required"`
+	Created_User string  `json:"created_user"`
+	Updated_User string  `json:"updated_user"`
 	Count        int     `json:"count"`
 }
 
@@ -32,7 +33,9 @@ type ExerciseInCatetory struct {
 }
 
 // This function is that Query all category rows
-func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err error) {
+func (c Category) selectAllCategory(db *sql.DB, trainer_id, group_name string) ([]Category, error) {
+	var categories []Category
+	nullCategory := [0]Category{}
 	rows, err := db.Query(
 		`SELECT 
 			c.seq,
@@ -46,9 +49,9 @@ func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err erro
 			c.updated_user,
 			COUNT(e.category_seq) AS count 
 		FROM t_category c left join t_exercise e on e.category_seq = c.seq 
-		WHERE c.trainer_id = ? AND c.group_name = ? GROUP BY c.seq`, c.Trainer_Id, c.Group_Name)
+		WHERE c.trainer_id = ? AND c.group_name = ? GROUP BY c.seq`, trainer_id, group_name)
 	if err != nil {
-		return
+		return nullCategory[:], errors.Wrap(err, "Failed to select From Database")
 	}
 
 	for rows.Next() {
@@ -68,11 +71,12 @@ func (c Category) selectAllCategory(db *sql.DB) (categories []Category, err erro
 	}
 	defer rows.Close()
 
-	return
+	return categories, nil
 }
 
 // This function is Insert category
-func (c Category) insertCategory(db *sql.DB) (Id int, err error) {
+func (c Category) insertCategory(db *sql.DB) (int, error) {
+	var id int
 	stmt, err := db.Prepare(
 		`INSERT INTO 
 			t_category(title,
@@ -83,27 +87,32 @@ func (c Category) insertCategory(db *sql.DB) (Id int, err error) {
 				updated_user) 
 			VALUES(?, ?, ?, ?, ?, ?)`)
 	if err != nil {
-		return
+		id = 0
+		return id, errors.Wrap(err, "Failed to prepare")
 	}
 
 	result, err := stmt.Exec(
-		c.Title, c.Desc, c.Group_Name, c.Trainer_Id, c.Created_User, c.Updated_User)
+		c.Title, c.Desc, c.Group_Name, c.Trainer_Id, c.Trainer_Id, c.Trainer_Id)
 	if err != nil {
-		return
+		id = 0
+		return id, errors.Wrap(err, "Failed to insert to Database")
 	}
 	defer stmt.Close()
 
-	id, err := result.LastInsertId()
+	seq, err := result.LastInsertId()
 	if err != nil {
-		return
+		id = 0
+		return id, errors.Wrap(err, "Failed to insert last id to Database")
 	}
-	Id = int(id)
+	id = int(seq)
 
-	return
+	return id, nil
 }
 
 // This function is Select all exercises has category_seq
-func (e ExerciseInCatetory) selectExerciseInCategory(category_seq int, db *sql.DB) (exercies []ExerciseInCatetory, err error) {
+func (e ExerciseInCatetory) selectExerciseInCategory(category_seq int, db *sql.DB) ([]ExerciseInCatetory, error) {
+	var exercies []ExerciseInCatetory
+	nullExercises := [0]ExerciseInCatetory{}
 	rows, err := db.Query(
 		`SELECT 
 			seq, 
@@ -111,9 +120,9 @@ func (e ExerciseInCatetory) selectExerciseInCategory(category_seq int, db *sql.D
 			`+"`desc`,"+` 
 			trainer_id, 
 			group_name FROM t_exercise 
-		WHERE category_seq = ? AND trainer_id = ? AND group_name = ?`, category_seq, e.Trainer_Id, e.Group_Name)
+		WHERE category_seq = ?`, category_seq)
 	if err != nil {
-		return
+		return nullExercises[:], errors.Wrap(err, "Failed to select From Database")
 	}
 
 	for rows.Next() {
@@ -123,46 +132,78 @@ func (e ExerciseInCatetory) selectExerciseInCategory(category_seq int, db *sql.D
 	}
 	defer rows.Close()
 
-	return
+	return exercies, nil
 }
 
 // This function is Delete category
-func (c Category) deleteCategory(db *sql.DB) (rows int, err error) {
+func (c Category) deleteCategory(db *sql.DB, category_seq int) (int, error) {
+	var rows int
 	var inCategory int
 	count := db.QueryRow(
 		`SELECT 
 			COUNT(e.category_seq) AS count 
 		FROM t_category c left join t_exercise e on e.category_seq = c.seq 
-		WHERE c.seq = ? AND e.trainer_id = ? AND e.group_name = ? group by c.seq`, c.Seq, c.Trainer_Id, c.Group_Name)
-	err = count.Scan(&inCategory)
+		WHERE c.seq = ? GROUP BY c.seq`, category_seq)
+	err := count.Scan(&inCategory)
 	if err != nil {
 		rows = 0
-		return
+		return rows, errors.Wrap(err, "Failed to select before delete Query")
 	}
 
 	if inCategory > 0 {
 		rows = 0
-		return
+		return rows, errors.Wrap(err, "Included at least 1 exercise in Category")
 	}
 
 	stmt, err := db.Prepare(
 		`DELETE FROM t_category 
-		WHERE seq = ? AND trainer_id = ? AND group_name = ?`)
+		WHERE seq = ?`)
 	if err != nil {
 		rows = 0
-		return
+		return rows, errors.Wrap(err, "Failed to prepare")
 	}
 
-	result, err := stmt.Exec(c.Seq, c.Trainer_Id, c.Group_Name)
+	result, err := stmt.Exec(category_seq)
 	if err != nil {
 		rows = 0
-		return
+		return rows, errors.Wrap(err, "Failed to delete category")
 	}
 
 	row, err := result.RowsAffected()
 	if err != nil {
 		rows = 0
-		return
+		return rows, errors.Wrap(err, "Failed to receive From Database")
+	}
+	defer stmt.Close()
+	rows = int(row)
+
+	return rows, nil
+}
+
+// This function is Update category
+func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
+	stmt, err := db.Prepare(
+		`UPDATE t_category 
+			SET title = ?,
+				` + "`desc`" + `= ?, 
+				updated_date = now(), 
+				updated_user = ? 
+			WHERE seq = ?`)
+	if err != nil {
+		rows = 0
+		return rows, errors.Wrap(err, "Failed to prepare")
+	}
+
+	result, err := stmt.Exec(c.Title, c.Desc, c.Trainer_Id, c.Seq)
+	if err != nil {
+		rows = 0
+		return rows, errors.Wrap(err, "Failed to execute to Database")
+	}
+
+	row, err := result.RowsAffected()
+	if err != nil {
+		rows = 0
+		return rows, errors.Wrap(err, "Failed to receive From Database")
 	}
 	defer stmt.Close()
 	rows = int(row)
@@ -170,105 +211,20 @@ func (c Category) deleteCategory(db *sql.DB) (rows int, err error) {
 	return
 }
 
-// This function is Update category
-func (c Category) updateCategory(db *sql.DB) (rows int, err error) {
-	// Case 1 -> Only Change Title, Case 2 -> Only Change Description, Case 3 -> Change Title and Description.
-	if c.Title == "" {
-		stmt, err := db.Prepare(
-			`UPDATE t_category 
-				SET ` + "`desc`" + `= ?, 
-					updated_date = now(), 
-					updated_user = ? 
-				WHERE seq = ?`)
-		if err != nil {
-			rows = 0
-			return rows, err
-		}
-
-		result, err := stmt.Exec(c.Desc, c.Updated_User, c.Seq)
-		if err != nil {
-			rows = 0
-			return rows, err
-		}
-
-		row, err := result.RowsAffected()
-		if err != nil {
-			rows = 0
-			return rows, err
-		}
-		defer stmt.Close()
-		rows = int(row)
-	} else {
-		switch {
-		case c.Desc == nil:
-			stmt, err := db.Prepare(
-				`UPDATE t_category 
-					SET title = ?, 
-						updated_date = now(), 
-						updated_user = ? 
-					WHERE seq = ?`)
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-			result, err := stmt.Exec(c.Title, c.Updated_User, c.Seq)
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-
-			row, err := result.RowsAffected()
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-			defer stmt.Close()
-			rows = int(row)
-		default:
-			stmt, err := db.Prepare(
-				`UPDATE t_category 
-					SET title = ?,
-						` + "`desc`" + `= ?, 
-						updated_date = now(), 
-						updated_user = ? 
-					WHERE seq = ?`)
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-			result, err := stmt.Exec(c.Title, c.Desc, c.Updated_User, c.Seq)
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-
-			row, err := result.RowsAffected()
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-			defer stmt.Close()
-			rows = int(row)
-		}
-	}
-	return
-}
-
 func getAllCategory(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		nullCategory := [0]Category{}
+		//nullCategory := [0]Category{}
 		trainer_id, group_name := common.GetQueryString(c)
 		category := Category{}
-		category.Trainer_Id, category.Group_Name = trainer_id, group_name
-		categories, err := category.selectAllCategory(db)
+		categories, err := category.selectAllCategory(db, trainer_id, group_name)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, nullCategory))
+			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, categories))
 		} else {
 			switch {
 			case len(categories) > 0:
 				c.JSON(http.StatusOK, common.SucceedResponse(categories))
 			default:
-				c.JSON(http.StatusOK, common.SucceedResponse(nullCategory))
+				c.JSON(http.StatusOK, common.SucceedResponse(categories))
 			}
 		}
 	}
@@ -278,7 +234,7 @@ func getAllCategory(db *sql.DB) gin.HandlerFunc {
 
 func getExercisesInCategory(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		nullExercise := [0]ExerciseInCatetory{}
+		//nullExercise := [0]ExerciseInCatetory{}
 		category_seq := c.Param("category_seq")
 		Category_Seq, err := strconv.Atoi(category_seq)
 		if err != nil {
@@ -286,18 +242,16 @@ func getExercisesInCategory(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		trainer_id, group_name := common.GetQueryString(c)
 		exercise := ExerciseInCatetory{}
-		exercise.Trainer_Id, exercise.Group_Name = trainer_id, group_name
 		exercises, err := exercise.selectExerciseInCategory(Category_Seq, db)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, nullExercise))
+			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, exercises))
 		} else {
 			switch {
 			case len(exercises) > 0:
 				c.JSON(http.StatusOK, common.SucceedResponse(exercises))
 			default:
-				c.JSON(http.StatusOK, common.SucceedResponse(nullExercise)) // return []
+				c.JSON(http.StatusOK, common.SucceedResponse(exercises)) // return []
 			}
 		}
 	}
@@ -336,17 +290,15 @@ func postCategory(db *sql.DB) gin.HandlerFunc {
 
 func deleteCategory(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		seq := c.Param("category_seq")
-		Seq, err := strconv.Atoi(seq)
+		category_seq := c.Param("category_seq")
+		Category_Seq, err := strconv.Atoi(category_seq)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, common.FailedResponse(err, seq))
+			c.JSON(http.StatusBadRequest, common.FailedResponse(err, category_seq))
 			return
 		}
 
-		trainer_id, group_name := common.GetQueryString(c)
 		category := Category{}
-		category.Seq, category.Trainer_Id, category.Group_Name = Seq, trainer_id, group_name
-		row, err := category.deleteCategory(db)
+		row, err := category.deleteCategory(db, Category_Seq)
 		if err != nil {
 			switch {
 			case strings.Contains(err.Error(), "no rows in result set"):
@@ -364,17 +316,8 @@ func deleteCategory(db *sql.DB) gin.HandlerFunc {
 
 func patchCategory(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		seq := c.Param("category_seq")
-		Seq, err := strconv.Atoi(seq)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, common.FailedResponse(err, seq))
-			return
-		}
-
-		trainer_id, group_name := common.GetQueryString(c)
 		category := Category{}
-		category.Seq, category.Trainer_Id, category.Group_Name = Seq, trainer_id, group_name
-		if err = c.ShouldBindJSON(&category); err != nil {
+		if err := c.ShouldBindJSON(&category); err != nil {
 			c.JSON(http.StatusBadRequest, common.FailedResponse(err, category))
 			return
 		}
@@ -410,5 +353,5 @@ func CategoryRouter(router *gin.Engine, db *sql.DB) {
 
 	// Update Specific Category.
 	// curl http://127.0.0.1:8080/api/category/patch/16 -X PATCH -d {"title": "변경된 카테고리", "desc": "Blah Blah.."}
-	category.PATCH("/:category_seq", patchCategory(db))
+	category.PATCH("/", patchCategory(db))
 }

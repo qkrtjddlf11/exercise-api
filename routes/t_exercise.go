@@ -2,12 +2,12 @@ package routes
 
 import (
 	"database/sql"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 	"github.com/qkrtjddlf11/exercise-api/common"
 )
 
@@ -24,7 +24,8 @@ type TodayExercise struct {
 	Exercise_Date *string `json:"exercise_date"`
 }
 
-func (td TodayExercise) todayExerciseInsertQuery(db *sql.DB) (Seq int, err error) {
+func (td TodayExercise) todayExerciseInsertQuery(db *sql.DB) (int, error) {
+	var seq int
 	stmt, err := db.Prepare(
 		`INSERT INTO 
 			t_today_exercises(trainer_id, 
@@ -36,28 +37,31 @@ func (td TodayExercise) todayExerciseInsertQuery(db *sql.DB) (Seq int, err error
 				exercise_date) 
 			VALUES(?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
-		fmt.Println(err)
-		return
+		seq = 0
+		return seq, errors.Wrap(err, "Failed to prepare")
 	}
 
 	result, err := stmt.Exec(
-		td.Trainer_Id, td.Group_Name, td.Exercises, td.Created_User, td.Updated_User, td.User_Id, td.Exercise_Date)
+		td.Trainer_Id, td.Group_Name, td.Exercises, td.Trainer_Id, td.Trainer_Id, td.User_Id, td.Exercise_Date)
 	if err != nil {
-		fmt.Println(err)
-		return
+		seq = 0
+		return seq, errors.Wrap(err, "Failed to insert to Database")
 	}
 	defer stmt.Close()
 
 	id, err := result.LastInsertId()
 	if err != nil {
-		return
+		seq = 0
+		return seq, errors.Wrap(err, "Failed to insert last id to Database")
 	}
-	Seq = int(id)
+	seq = int(id)
 
-	return
+	return seq, nil
 }
 
-func (td TodayExercise) todayExerciseSelectQuery(db *sql.DB, start_date, end_date string) (tdExercises []TodayExercise, err error) {
+func (td TodayExercise) todayExerciseSelectQuery(db *sql.DB, start_date, end_date string) ([]TodayExercise, error) {
+	var tdExercises []TodayExercise
+	nullTdExercises := [0]TodayExercise{}
 	rows, err := db.Query(
 		`SELECT
 			seq,
@@ -72,7 +76,7 @@ func (td TodayExercise) todayExerciseSelectQuery(db *sql.DB, start_date, end_dat
 			exercise_date FROM t_today_exercises 
 		WHERE trainer_id = ? AND group_name = ? AND exercise_date >= ? AND exercise_date <= ?`, td.Trainer_Id, td.Group_Name, start_date, end_date)
 	if err != nil {
-		return
+		return nullTdExercises[:], errors.Wrap(err, "Failed to select From Database")
 	}
 
 	for rows.Next() {
@@ -92,33 +96,33 @@ func (td TodayExercise) todayExerciseSelectQuery(db *sql.DB, start_date, end_dat
 	}
 	defer rows.Close()
 
-	return
+	return tdExercises, nil
 }
 
-func (td TodayExercise) deleteTodayExercise(db *sql.DB) (rows int, err error) {
+func (td TodayExercise) deleteTodayExercise(db *sql.DB) (int, error) {
+	var rows int
 	stmt, err := db.Prepare(
-		`DELETE FROM t_today_exercises 
-		WHERE seq = ? AND trainer_id = ? AND group_name = ?`)
+		`DELETE FROM t_today_exercises WHERE seq = ?`)
 	if err != nil {
 		rows = 0
-		return
+		return rows, errors.Wrap(err, "Failed to prepare")
 	}
 
-	result, err := stmt.Exec(td.Seq, td.Trainer_Id, td.Group_Name)
+	result, err := stmt.Exec(td.Seq)
 	if err != nil {
 		rows = 0
-		return
+		return rows, errors.Wrap(err, "Failed to delete category")
 	}
 
 	row, err := result.RowsAffected()
 	if err != nil {
 		rows = 0
-		return
+		return rows, errors.Wrap(err, "Failed to recive From Database")
 	}
 	defer stmt.Close()
 	rows = int(row)
 
-	return
+	return rows, err
 
 }
 
@@ -137,7 +141,7 @@ func (td TodayExercise) updateTodayExercise(db *sql.DB) (rows int, err error) {
 		return rows, err
 	}
 
-	result, err := stmt.Exec(td.User_Id, td.Exercises, td.Updated_User, td.Exercise_Date, td.Seq)
+	result, err := stmt.Exec(td.User_Id, td.Exercises, td.Trainer_Id, td.Exercise_Date, td.Seq)
 	if err != nil {
 		rows = 0
 		return rows, err
@@ -175,7 +179,6 @@ func patchTodayExercise(db *sql.DB) gin.HandlerFunc {
 
 func deleteTodayExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		trainer_id, group_name := common.GetQueryString(c)
 		seq := c.Param("t_seq")
 		Seq, err := strconv.Atoi(seq)
 		if err != nil {
@@ -184,7 +187,7 @@ func deleteTodayExercise(db *sql.DB) gin.HandlerFunc {
 		}
 
 		tdExercises := TodayExercise{}
-		tdExercises.Seq, tdExercises.Trainer_Id, tdExercises.Group_Name = Seq, trainer_id, group_name
+		tdExercises.Seq = Seq
 		row, err := tdExercises.deleteTodayExercise(db)
 		if err != nil {
 			switch {

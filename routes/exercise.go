@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 	"github.com/qkrtjddlf11/exercise-api/common"
 )
 
@@ -23,7 +24,9 @@ type Exercise struct {
 }
 
 // This function is that Query all exercise rows
-func (e Exercise) selectAllExercise(db *sql.DB) (exercises []Exercise, err error) {
+func (e Exercise) selectAllExercise(db *sql.DB, trainer_id, group_name string) ([]Exercise, error) {
+	var exercises []Exercise
+	nullExercises := [0]Exercise{}
 	rows, err := db.Query(
 		`SELECT 
 			seq, 
@@ -36,9 +39,9 @@ func (e Exercise) selectAllExercise(db *sql.DB) (exercises []Exercise, err error
 			created_user,
 			updated_user, 
 			category_seq FROM t_exercise 
-		WHERE trainer_id = ? AND group_name = ?`, e.Trainer_Id, e.Group_Name)
+		WHERE trainer_id = ? AND group_name = ?`, trainer_id, group_name)
 	if err != nil {
-		return
+		return nullExercises[:], errors.Wrap(err, "Failed to select From Database")
 	}
 
 	for rows.Next() {
@@ -58,10 +61,11 @@ func (e Exercise) selectAllExercise(db *sql.DB) (exercises []Exercise, err error
 	}
 	defer rows.Close()
 
-	return
+	return exercises, nil
 }
 
-func (e Exercise) insertExercise(db *sql.DB) (Id int, err error) {
+func (e Exercise) insertExercise(db *sql.DB) (int, error) {
+	var id int
 	stmt, err := db.Prepare(
 		`INSERT INTO 
 			t_exercise(title, 
@@ -71,144 +75,92 @@ func (e Exercise) insertExercise(db *sql.DB) (Id int, err error) {
 				created_user, 
 				updated_user, 
 				category_seq) 
-			VALUE(?, ?, ?, ?, ?, ?, ?, ?)`)
+			VALUE(?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
-		return
+		id = 0
+		return id, errors.Wrap(err, "Failed to prepare to Database")
 	}
 
 	result, err := stmt.Exec(
-		e.Title, e.Desc, e.Group_Name, e.Trainer_Id, e.Created_User, e.Updated_User, e.Category_Seq)
+		e.Title, e.Desc, e.Group_Name, e.Trainer_Id, e.Trainer_Id, e.Trainer_Id, e.Category_Seq)
 	if err != nil {
-		return
+		return id, errors.Wrap(err, "Failed to execute to Database")
 	}
 
-	id, err := result.LastInsertId()
+	seq, err := result.LastInsertId()
 	if err != nil {
-		return
+		id = 0
+		return id, errors.Wrap(err, "Failed to insert last id to Database")
 	}
 
-	Id = int(id)
+	id = int(seq)
 	defer stmt.Close()
 
-	return
+	return id, nil
 }
 
-func (e Exercise) deleteExercise(db *sql.DB) (rows int, err error) {
+func (e Exercise) deleteExercise(db *sql.DB) (int, error) {
+	var rows int
 	stmt, err := db.Prepare(
-		`DELETE FROM t_exercise 
-		WHERE seq = ? AND trainer_id = ? AND group_name = ?`)
+		`DELETE FROM t_exercise WHERE seq = ?`)
 	if err != nil {
-		return
+		rows = 0
+		return rows, errors.Wrap(err, "Failed to prepare")
 	}
 
-	result, err := stmt.Exec(e.Seq, e.Trainer_Id, e.Group_Name)
+	result, err := stmt.Exec(e.Seq)
 	if err != nil {
-		return
+		rows = 0
+		return rows, errors.Wrap(err, "Failed to delete category")
 	}
 
 	row, err := result.RowsAffected()
 	if err != nil {
-		return
+		rows = 0
+		return rows, errors.Wrap(err, "Failed to recive From Database")
 	}
 	defer stmt.Close()
 	rows = int(row)
-	return
+
+	return rows, nil
 }
 
 func (e Exercise) updateExercise(db *sql.DB) (rows int, err error) {
-	// Case 1 -> Only Change Title, Case 2 -> Only Change Description, Case 3 -> Change Title and Description.
-	if len(e.Title) == 0 || e.Title == "" {
-		stmt, err := db.Prepare(
-			`UPDATE t_exercise 
-				SET 
-					` + "`desc`" + `= ?, 
-					pdated_date = now(), 
-					updated_user = ? 
-				WHERE seq = ?`)
-		if err != nil {
-			rows = 0
-			return rows, err
-		}
-
-		result, err := stmt.Exec(e.Desc, e.Updated_User, e.Seq)
-		if err != nil {
-			rows = 0
-			return rows, err
-		}
-
-		row, err := result.RowsAffected()
-		if err != nil {
-			rows = 0
-			return rows, err
-		}
-		defer stmt.Close()
-		rows = int(row)
-	} else {
-		switch {
-		case e.Desc == nil:
-			stmt, err := db.Prepare(
-				`UPDATE t_exercise 
-					SET 
-						title = ?, 
-						updated_date = now(), 
-						updated_user = ? 
-					WHERE seq = ?`)
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-
-			result, err := stmt.Exec(e.Title, e.Updated_User, e.Seq)
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-
-			row, err := result.RowsAffected()
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-			defer stmt.Close()
-			rows = int(row)
-		default:
-			stmt, err := db.Prepare(
-				`UPDATE t_exercise 
-					SET 
-						title = ?, 
-						` + "`desc`" + `= ?, 
-						updated_date = now(), 
-						updated_user = ? 
-					WHERE seq = ?`)
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-
-			result, err := stmt.Exec(e.Title, e.Desc, e.Updated_User, e.Seq)
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-
-			row, err := result.RowsAffected()
-			if err != nil {
-				rows = 0
-				return rows, err
-			}
-			defer stmt.Close()
-			rows = int(row)
-		}
+	stmt, err := db.Prepare(
+		`UPDATE t_exercise 
+			SET 
+				title = ?, 
+				` + "`desc`" + `= ?, 
+				updated_date = now(), 
+				updated_user = ? 
+			WHERE seq = ?`)
+	if err != nil {
+		rows = 0
+		return rows, errors.Wrap(err, "Failed to prepare")
 	}
+
+	result, err := stmt.Exec(e.Title, e.Desc, e.Trainer_Id, e.Seq)
+	if err != nil {
+		rows = 0
+		return rows, errors.Wrap(err, "Failed to execute to Database")
+	}
+
+	row, err := result.RowsAffected()
+	if err != nil {
+		rows = 0
+		return rows, errors.Wrap(err, "Failed to receive From Database")
+	}
+	defer stmt.Close()
+	rows = int(row)
+
 	return
 }
 
-func getExercise(db *sql.DB) gin.HandlerFunc {
+func getAllExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		trainer_id, group_name := common.GetQueryString(c)
 		exercise := Exercise{}
-		exercise.Trainer_Id, exercise.Group_Name = trainer_id, group_name
-		exercises, err := exercise.selectAllExercise(db)
+		exercises, err := exercise.selectAllExercise(db, trainer_id, group_name)
 		nullExercise := [0]Exercise{}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, nullExercise))
@@ -228,10 +180,10 @@ func getExercise(db *sql.DB) gin.HandlerFunc {
 
 func postExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		category_seq := c.Param("category_seq")
+		//category_seq := c.Param("category_seq")
 		exercise := Exercise{}
 		if err := c.Bind(&exercise); err != nil {
-			c.JSON(http.StatusBadRequest, common.FailedResponse(err, category_seq))
+			c.JSON(http.StatusBadRequest, common.FailedResponse(err, exercise))
 			return
 		}
 
@@ -241,12 +193,6 @@ func postExercise(db *sql.DB) gin.HandlerFunc {
 		} else {
 			switch {
 			case row == 0:
-				exercise.Category_Seq, err = strconv.Atoi(category_seq)
-				if err != nil {
-					c.JSON(http.StatusBadRequest, common.FailedResponse(err, category_seq))
-					return
-				}
-
 				Seq, err := exercise.insertExercise(db)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, common.FailedResponse(err, exercise))
@@ -271,9 +217,7 @@ func deleteExercise(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		trainer_id, group_name := common.GetQueryString(c)
-		exercise := Exercise{}
-		exercise.Seq, exercise.Trainer_Id, exercise.Group_Name = Seq, trainer_id, group_name
+		exercise := Exercise{Seq: Seq}
 		rows, err := exercise.deleteExercise(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, rows))
@@ -287,17 +231,8 @@ func deleteExercise(db *sql.DB) gin.HandlerFunc {
 
 func patchExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
-		seq := c.Param("exercise_seq")
-		Seq, err := strconv.Atoi(seq)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, common.FailedResponse(err, seq))
-			return
-		}
-
-		trainer_id, group_name := common.GetQueryString(c)
 		exercise := Exercise{}
-		exercise.Seq, exercise.Trainer_Id, exercise.Group_Name = Seq, trainer_id, group_name
-		err = c.Bind(&exercise)
+		err := c.Bind(&exercise)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, common.FailedResponse(err, exercise))
 			return
@@ -319,11 +254,11 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 
 	// GET All Exercise.
 	// curl http://127.0.0.1:8080/api/exercise/all?trainer_id=Lee&group_name=kygym -X GET
-	exercise.GET("/all", getExercise(db))
+	exercise.GET("/all", getAllExercise(db))
 
 	// Create Specific Exercise.
 	// curl http://127.0.0.1:8080/api/exercise/2 -X POST -d '{"title": "벤치 프레스", "desc": "가슴 근육 향상"}' -H "Content-Type: application/json"
-	exercise.POST("/:category_seq", postExercise(db))
+	exercise.POST("/", postExercise(db))
 
 	// Delete Specific Exercise.
 	// curl http://127.0.0.1:8080/api/exercise/2?trainer_id=Lee&group_name=kygym -X DELETE
@@ -331,5 +266,5 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 
 	// Update Specific Exercise.
 	// curl http://127.0.0.1:8080/api/exercise/16 -X PATCH -d {"title": "변경된 카테고리", "desc": "Blah Blah.."}
-	exercise.PATCH("/:exercise_seq", patchExercise(db))
+	exercise.PATCH("/", patchExercise(db))
 }
