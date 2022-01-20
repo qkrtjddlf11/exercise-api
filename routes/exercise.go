@@ -61,10 +61,14 @@ func (e Exercise) selectAllExercise(db *sql.DB, trainer_id, group_name string) (
 	}
 	defer rows.Close()
 
-	return exercises, nil
+	if len(exercises) > 0 {
+		return exercises, nil
+	} else {
+		return nullExercises[:], errors.Wrap(err, "Exercise less than 1")
+	}
 }
 
-func (e Exercise) insertExercise(db *sql.DB) (int, error) {
+func (e Exercise) addExercise(db *sql.DB) (int, error) {
 	var id int
 	stmt, err := db.Prepare(
 		`INSERT INTO 
@@ -125,7 +129,7 @@ func (e Exercise) deleteExercise(db *sql.DB) (int, error) {
 	return rows, nil
 }
 
-func (e Exercise) updateExercise(db *sql.DB) (rows int, err error) {
+func (e Exercise) modifyExercise(db *sql.DB) (rows int, err error) {
 	stmt, err := db.Prepare(
 		`UPDATE t_exercise 
 			SET 
@@ -156,7 +160,7 @@ func (e Exercise) updateExercise(db *sql.DB) (rows int, err error) {
 	return
 }
 
-func getAllExercise(db *sql.DB) gin.HandlerFunc {
+func GetAllExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		trainer_id, group_name := common.GetQueryString(c)
 		exercise := Exercise{}
@@ -178,7 +182,7 @@ func getAllExercise(db *sql.DB) gin.HandlerFunc {
 	return resultFunc
 }
 
-func postExercise(db *sql.DB) gin.HandlerFunc {
+func PostExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		//category_seq := c.Param("category_seq")
 		exercise := Exercise{}
@@ -193,7 +197,7 @@ func postExercise(db *sql.DB) gin.HandlerFunc {
 		} else {
 			switch {
 			case row == 0:
-				Seq, err := exercise.insertExercise(db)
+				Seq, err := exercise.addExercise(db)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, common.FailedResponse(err, exercise))
 				} else {
@@ -208,7 +212,7 @@ func postExercise(db *sql.DB) gin.HandlerFunc {
 	return resultFunc
 }
 
-func deleteExercise(db *sql.DB) gin.HandlerFunc {
+func DeleteExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		seq := c.Param("exercise_seq")
 		Seq, err := strconv.Atoi(seq)
@@ -229,7 +233,7 @@ func deleteExercise(db *sql.DB) gin.HandlerFunc {
 	return resultFunc
 }
 
-func patchExercise(db *sql.DB) gin.HandlerFunc {
+func PatchExercise(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		exercise := Exercise{}
 		err := c.Bind(&exercise)
@@ -238,7 +242,7 @@ func patchExercise(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		rows, err := exercise.updateExercise(db)
+		rows, err := exercise.modifyExercise(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, rows))
 		} else {
@@ -254,17 +258,17 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 
 	// GET All Exercise.
 	// curl http://127.0.0.1:8080/api/exercise/all?trainer_id=Lee&group_name=kygym -X GET
-	exercise.GET("/all", getAllExercise(db))
+	exercise.GET("/all", GetAllExercise(db))
 
 	// Create Specific Exercise.
 	// curl http://127.0.0.1:8080/api/exercise/2 -X POST -d '{"title": "벤치 프레스", "desc": "가슴 근육 향상"}' -H "Content-Type: application/json"
-	exercise.POST("/", postExercise(db))
+	exercise.POST("/", PostExercise(db))
 
 	// Delete Specific Exercise.
 	// curl http://127.0.0.1:8080/api/exercise/2?trainer_id=Lee&group_name=kygym -X DELETE
-	exercise.DELETE("/:exercise_seq", deleteExercise(db))
+	exercise.DELETE("/:exercise_seq", DeleteExercise(db))
 
 	// Update Specific Exercise.
 	// curl http://127.0.0.1:8080/api/exercise/16 -X PATCH -d {"title": "변경된 카테고리", "desc": "Blah Blah.."}
-	exercise.PATCH("/", patchExercise(db))
+	exercise.PATCH("/", PatchExercise(db))
 }

@@ -21,6 +21,7 @@ type TodayExercise struct {
 	Created_User  string  `json:"created_user"`
 	Updated_User  string  `json:"updated_user"`
 	User_Id       string  `json:"user_id"`
+	User_Name     string  `json:"user_name`
 	Exercise_Date *string `json:"exercise_date"`
 }
 
@@ -59,22 +60,23 @@ func (td TodayExercise) todayExerciseInsertQuery(db *sql.DB) (int, error) {
 	return seq, nil
 }
 
-func (td TodayExercise) todayExerciseSelectQuery(db *sql.DB, start_date, end_date string) ([]TodayExercise, error) {
+func (td TodayExercise) selectTodayExercises(db *sql.DB, start_date, end_date string) ([]TodayExercise, error) {
 	var tdExercises []TodayExercise
 	nullTdExercises := [0]TodayExercise{}
 	rows, err := db.Query(
 		`SELECT
-			seq,
-			trainer_id, 
-			group_name, 
-			exercises, 
-			created_date, 
-			updated_date,
-			created_user,
-			updated_user,
-			user_id,
-			exercise_date FROM t_today_exercises 
-		WHERE trainer_id = ? AND group_name = ? AND exercise_date >= ? AND exercise_date <= ?`, td.Trainer_Id, td.Group_Name, start_date, end_date)
+			t.seq,
+			t.trainer_id, 
+			t.group_name, 
+			t.exercises, 
+			t.created_date, 
+			t.updated_date,
+			t.created_user,
+			t.updated_user,
+			t.user_id,
+			u.name,
+			t.exercise_date FROM t_today_exercises t left join t_user u on t.user_id = u.id
+		WHERE t.trainer_id = ? AND t.group_name = ? AND t.exercise_date >= ? AND t.exercise_date <= ?`, td.Trainer_Id, td.Group_Name, start_date, end_date)
 	if err != nil {
 		return nullTdExercises[:], errors.Wrap(err, "Failed to select From Database")
 	}
@@ -91,6 +93,7 @@ func (td TodayExercise) todayExerciseSelectQuery(db *sql.DB, start_date, end_dat
 			&tdExercise.Created_User,
 			&tdExercise.Updated_User,
 			&tdExercise.User_Id,
+			&tdExercise.User_Name,
 			&tdExercise.Exercise_Date)
 		tdExercises = append(tdExercises, tdExercise)
 	}
@@ -99,7 +102,7 @@ func (td TodayExercise) todayExerciseSelectQuery(db *sql.DB, start_date, end_dat
 	return tdExercises, nil
 }
 
-func (td TodayExercise) deleteTodayExercise(db *sql.DB) (int, error) {
+func (td TodayExercise) deleteTodayExercises(db *sql.DB) (int, error) {
 	var rows int
 	stmt, err := db.Prepare(
 		`DELETE FROM t_today_exercises WHERE seq = ?`)
@@ -126,7 +129,7 @@ func (td TodayExercise) deleteTodayExercise(db *sql.DB) (int, error) {
 
 }
 
-func (td TodayExercise) updateTodayExercise(db *sql.DB) (rows int, err error) {
+func (td TodayExercise) modifyTodayExercises(db *sql.DB) (rows int, err error) {
 	stmt, err := db.Prepare(
 		`UPDATE t_today_exercises 
 			SET
@@ -158,7 +161,7 @@ func (td TodayExercise) updateTodayExercise(db *sql.DB) (rows int, err error) {
 	return
 }
 
-func patchTodayExercise(db *sql.DB) gin.HandlerFunc {
+func PatchTodayExercises(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		tdExercises := TodayExercise{}
 		if err := c.Bind(&tdExercises); err != nil {
@@ -166,7 +169,7 @@ func patchTodayExercise(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		rows, err := tdExercises.updateTodayExercise(db)
+		rows, err := tdExercises.modifyTodayExercises(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, rows))
 		} else {
@@ -177,7 +180,7 @@ func patchTodayExercise(db *sql.DB) gin.HandlerFunc {
 	return resultFunc
 }
 
-func deleteTodayExercise(db *sql.DB) gin.HandlerFunc {
+func DeleteTodayExercises(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		seq := c.Param("t_seq")
 		Seq, err := strconv.Atoi(seq)
@@ -188,7 +191,7 @@ func deleteTodayExercise(db *sql.DB) gin.HandlerFunc {
 
 		tdExercises := TodayExercise{}
 		tdExercises.Seq = Seq
-		row, err := tdExercises.deleteTodayExercise(db)
+		row, err := tdExercises.deleteTodayExercises(db)
 		if err != nil {
 			switch {
 			case strings.Contains(err.Error(), "no rows in result set"):
@@ -204,7 +207,7 @@ func deleteTodayExercise(db *sql.DB) gin.HandlerFunc {
 	return resultFunc
 }
 
-func postTodayExercise(db *sql.DB) gin.HandlerFunc {
+func PostTodayExercises(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		trainer_id, group_name := common.GetQueryString(c)
 		tdExercises := TodayExercise{}
@@ -225,16 +228,17 @@ func postTodayExercise(db *sql.DB) gin.HandlerFunc {
 	return resultFunc
 }
 
-func getTodayExercise(db *sql.DB) gin.HandlerFunc {
+func GetTodayExercises(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		trainer_id, group_name := common.GetQueryString(c)
 		start_date := c.Query("start_date")
 		end_date := c.Query("end_date")
 		tdExercise := TodayExercise{}
 		tdExercise.Trainer_Id, tdExercise.Group_Name = trainer_id, group_name
-		tdExercises, err := tdExercise.todayExerciseSelectQuery(db, start_date, end_date)
+		tdExercises, err := tdExercise.selectTodayExercises(db, start_date, end_date)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, tdExercises))
+			return
 		}
 
 		c.JSON(http.StatusOK, common.SucceedResponse(tdExercises))
@@ -246,14 +250,14 @@ func getTodayExercise(db *sql.DB) gin.HandlerFunc {
 func TodayExerciseRouter(router *gin.Engine, db *sql.DB) {
 	tdExercises := router.Group("/api/t/exercises")
 
-	// curl http://127.0.0.1:8080/api/t/exercises?trainer_id=Park&group_name=dygym -X POST -d '{"exercises": "스쿼트 20회 5Set", "created_user": "Lee", "updated_user": "Lee", "user_id": "Customer2", "exercise_date": "2022-01-18"}' -H "Content-Type: application/json"
-	tdExercises.POST("/", postTodayExercise(db))
-
 	// Get All TodayExercises with specific trainer_id and group_name
 	// curl http://127.0.0.1:8080/api/t/exercises?trainer_id=Park&group_name=dygym -X GET
-	tdExercises.GET("/", getTodayExercise(db))
+	tdExercises.GET("/", GetTodayExercises(db))
 
-	tdExercises.DELETE("/:t_seq", deleteTodayExercise(db))
+	// curl http://127.0.0.1:8080/api/t/exercises?trainer_id=Park&group_name=dygym -X POST -d '{"exercises": "스쿼트 20회 5Set", "created_user": "Lee", "updated_user": "Lee", "user_id": "Customer2", "exercise_date": "2022-01-18"}' -H "Content-Type: application/json"
+	tdExercises.POST("/", PostTodayExercises(db))
 
-	tdExercises.PATCH("/", patchTodayExercise(db))
+	tdExercises.DELETE("/:t_seq", DeleteTodayExercises(db))
+
+	tdExercises.PATCH("/", PatchTodayExercises(db))
 }
