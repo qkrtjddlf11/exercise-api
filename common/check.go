@@ -3,6 +3,8 @@ package common
 import (
 	"database/sql"
 	"fmt"
+
+	"github.com/gin-gonic/gin"
 )
 
 // This function is to Check Duplicated Name in category or exercise table's title
@@ -26,4 +28,11 @@ func DuplicatedUserIdCheck(table, user_id string, db *sql.DB) (count int, err er
 	}
 
 	return count, nil
+}
+
+func GetQueryString(c *gin.Context) (trainer_id string, group_name string) {
+	trainer_id = c.Query("trainer_id")
+	group_name = c.Query("group_name")
+
+	return
 }

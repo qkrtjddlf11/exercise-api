@@ -21,7 +21,7 @@ type TodayExercise struct {
 	Created_User  string  `json:"created_user"`
 	Updated_User  string  `json:"updated_user"`
 	User_Id       string  `json:"user_id"`
-	User_Name     string  `json:"user_name`
+	User_Name     string  `json:"user_name"`
 	Exercise_Date *string `json:"exercise_date"`
 }
 
@@ -164,6 +164,9 @@ func (td TodayExercise) modifyTodayExercises(db *sql.DB) (rows int, err error) {
 func PatchTodayExercises(db *sql.DB) gin.HandlerFunc {
 	resultFunc := func(c *gin.Context) {
 		tdExercises := TodayExercise{}
+		//trainer_id, group_name := common.GetQueryString(c)
+		//exercise_date := c.Query("exercise_date")
+		//user_id := c.Query("user_id")
 		if err := c.Bind(&tdExercises); err != nil {
 			c.JSON(http.StatusBadRequest, common.FailedResponse(err, tdExercises))
 			return
