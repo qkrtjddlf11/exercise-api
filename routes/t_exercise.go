@@ -25,8 +25,35 @@ type TodayExercise struct {
 	Exercise_Date *string `json:"exercise_date"`
 }
 
-func (td TodayExercise) todayExerciseInsertQuery(db *sql.DB) (int, error) {
+func (td TodayExercise) preInsertTodayExercise(db *sql.DB) error {
+	var count int
+	row := db.QueryRow(
+		`SELECT
+			COUNT(user_id)
+		FROM t_today_exercises WHERE user_id = ? AND exercise_date = ?`, td.User_Id, td.Exercise_Date)
+
+	err := row.Scan(&count)
+	if err != nil {
+		return errors.Wrap(err, "Failed to select From Database")
+	} else {
+		switch {
+		case count > 0:
+			return errors.Wrap(err, "Duplicated exercise date")
+
+		default:
+			return nil
+		}
+	}
+}
+
+func (td TodayExercise) insertTodayExercise(db *sql.DB) (int, error) {
 	var seq int
+
+	err := td.preInsertTodayExercise(db)
+	if err != nil {
+		return 0, err
+	}
+
 	stmt, err := db.Prepare(
 		`INSERT INTO 
 			t_today_exercises(trainer_id, 
@@ -38,21 +65,18 @@ func (td TodayExercise) todayExerciseInsertQuery(db *sql.DB) (int, error) {
 				exercise_date) 
 			VALUES(?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
-		seq = 0
 		return seq, errors.Wrap(err, "Failed to prepare")
 	}
 
 	result, err := stmt.Exec(
 		td.Trainer_Id, td.Group_Name, td.Exercises, td.Trainer_Id, td.Trainer_Id, td.User_Id, td.Exercise_Date)
 	if err != nil {
-		seq = 0
 		return seq, errors.Wrap(err, "Failed to insert to Database")
 	}
 	defer stmt.Close()
 
 	id, err := result.LastInsertId()
 	if err != nil {
-		seq = 0
 		return seq, errors.Wrap(err, "Failed to insert last id to Database")
 	}
 	seq = int(id)
@@ -102,24 +126,57 @@ func (td TodayExercise) selectTodayExercises(db *sql.DB, start_date, end_date st
 	return tdExercises, nil
 }
 
+func (td TodayExercise) selectDetailTodayExercise(db *sql.DB, seq int) (TodayExercise, error) {
+	tdExercises := TodayExercise{}
+	row := db.QueryRow(
+		`SELECT
+			t.seq,
+			t.trainer_id, 
+			t.group_name, 
+			t.exercises, 
+			t.created_date, 
+			t.updated_date,
+			t.created_user,
+			t.updated_user,
+			t.user_id,
+			u.name,
+			t.exercise_date FROM t_today_exercises t left join t_user u on t.user_id = u.id
+		WHERE t.seq = ?`, seq)
+
+	err := row.Scan(
+		&tdExercises.Seq,
+		&tdExercises.Trainer_Id,
+		&tdExercises.Group_Name,
+		&tdExercises.Exercises,
+		&tdExercises.Created_Date,
+		&tdExercises.Updated_Date,
+		&tdExercises.Created_User,
+		&tdExercises.Updated_User,
+		&tdExercises.User_Id,
+		&tdExercises.User_Name,
+		&tdExercises.Exercise_Date)
+	if err != nil {
+		return tdExercises, errors.Wrap(err, "Failed to select From Database")
+	}
+
+	return tdExercises, nil
+}
+
 func (td TodayExercise) deleteTodayExercises(db *sql.DB) (int, error) {
 	var rows int
 	stmt, err := db.Prepare(
 		`DELETE FROM t_today_exercises WHERE seq = ?`)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to prepare")
 	}
 
 	result, err := stmt.Exec(td.Seq)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to delete category")
 	}
 
 	row, err := result.RowsAffected()
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to recive From Database")
 	}
 	defer stmt.Close()
@@ -140,19 +197,16 @@ func (td TodayExercise) modifyTodayExercises(db *sql.DB) (rows int, err error) {
 				exercise_date = ?
 			WHERE seq = ?`)
 	if err != nil {
-		rows = 0
 		return rows, err
 	}
 
 	result, err := stmt.Exec(td.User_Id, td.Exercises, td.Trainer_Id, td.Exercise_Date, td.Seq)
 	if err != nil {
-		rows = 0
 		return rows, err
 	}
 
 	row, err := result.RowsAffected()
 	if err != nil {
-		rows = 0
 		return rows, err
 	}
 	defer stmt.Close()
@@ -220,11 +274,18 @@ func PostTodayExercises(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		_, err := tdExercises.todayExerciseInsertQuery(db)
+		seq, err := tdExercises.insertTodayExercise(db)
+		if seq != 0 {
+			c.JSON(http.StatusOK, common.SucceedResponse(tdExercises))
+		}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, tdExercises))
 		} else {
-			c.JSON(http.StatusOK, common.SucceedResponse(tdExercises))
+			switch seq {
+			case 0:
+				c.JSON(http.StatusConflict, common.FailedResponse(err, tdExercises))
+			}
+
 		}
 	}
 
@@ -250,12 +311,34 @@ func GetTodayExercises(db *sql.DB) gin.HandlerFunc {
 	return resultFunc
 }
 
+func GetDetailTodayExercises(db *sql.DB) gin.HandlerFunc {
+	resultFunc := func(c *gin.Context) {
+		seq := c.Param("t_seq")
+		Seq, err := strconv.Atoi(seq)
+		if err != nil {
+			err = errors.Wrap(err, "Failed to convert seq")
+			c.JSON(http.StatusBadRequest, common.FailedResponse(err, Seq))
+		}
+
+		tdExercise := TodayExercise{}
+		tdExercise, err = tdExercise.selectDetailTodayExercise(db, Seq)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, tdExercise))
+		} else {
+			c.JSON(http.StatusOK, common.SucceedResponse(tdExercise))
+		}
+	}
+
+	return resultFunc
+}
+
 func TodayExerciseRouter(router *gin.Engine, db *sql.DB) {
 	tdExercises := router.Group("/api/t/exercises")
 
 	// Get All TodayExercises with specific trainer_id and group_name
 	// curl http://127.0.0.1:8080/api/t/exercises?trainer_id=Park&group_name=dygym -X GET
 	tdExercises.GET("/", GetTodayExercises(db))
+	tdExercises.GET("/:t_seq", GetDetailTodayExercises(db))
 
 	// curl http://127.0.0.1:8080/api/t/exercises?trainer_id=Park&group_name=dygym -X POST -d '{"exercises": "스쿼트 20회 5Set", "created_user": "Lee", "updated_user": "Lee", "user_id": "Customer2", "exercise_date": "2022-01-18"}' -H "Content-Type: application/json"
 	tdExercises.POST("/", PostTodayExercises(db))

@@ -81,7 +81,6 @@ func (e Exercise) addExercise(db *sql.DB) (int, error) {
 				category_seq) 
 			VALUE(?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
-		id = 0
 		return id, errors.Wrap(err, "Failed to prepare to Database")
 	}
 
@@ -93,7 +92,6 @@ func (e Exercise) addExercise(db *sql.DB) (int, error) {
 
 	seq, err := result.LastInsertId()
 	if err != nil {
-		id = 0
 		return id, errors.Wrap(err, "Failed to insert last id to Database")
 	}
 
@@ -108,19 +106,16 @@ func (e Exercise) deleteExercise(db *sql.DB) (int, error) {
 	stmt, err := db.Prepare(
 		`DELETE FROM t_exercise WHERE seq = ?`)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to prepare")
 	}
 
 	result, err := stmt.Exec(e.Seq)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to delete category")
 	}
 
 	row, err := result.RowsAffected()
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to recive From Database")
 	}
 	defer stmt.Close()
@@ -139,19 +134,16 @@ func (e Exercise) modifyExercise(db *sql.DB) (rows int, err error) {
 				updated_user = ? 
 			WHERE seq = ?`)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to prepare")
 	}
 
 	result, err := stmt.Exec(e.Title, e.Desc, e.Trainer_Id, e.Seq)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to execute to Database")
 	}
 
 	row, err := result.RowsAffected()
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to receive From Database")
 	}
 	defer stmt.Close()
@@ -188,25 +180,27 @@ func PostExercise(db *sql.DB) gin.HandlerFunc {
 		exercise := Exercise{}
 		if err := c.Bind(&exercise); err != nil {
 			c.JSON(http.StatusBadRequest, common.FailedResponse(err, exercise))
+
 			return
 		}
 
-		row, err := common.DuplicatedTitleCheck("t_exercise", exercise.Title, db)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, exercise.Title))
-		} else {
-			switch {
-			case row == 0:
-				Seq, err := exercise.addExercise(db)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, common.FailedResponse(err, exercise))
-				} else {
-					c.JSON(http.StatusCreated, common.SucceedResponse(Seq))
-				}
-			default:
-				c.JSON(http.StatusCreated, common.SucceedResponse(row))
+		_, err := common.IsDuplicatedTitle("t_exercise", exercise.Title, db)
+		switch err {
+		case nil:
+			_, err := exercise.addExercise(db)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, common.FailedResponse(err, exercise))
+			} else {
+				c.JSON(http.StatusCreated, common.SucceedResponse(exercise))
 			}
+
+		case common.DuplicatedTitle:
+			c.JSON(http.StatusConflict, common.FailedResponse(err, exercise.Title))
+
+		default:
+			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, exercise))
 		}
+
 	}
 
 	return resultFunc
@@ -242,12 +236,24 @@ func PatchExercise(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		rows, err := exercise.modifyExercise(db)
+		row, err := common.IsDuplicatedTitle("t_exercise", exercise.Title, db)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, rows))
+			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, exercise.Title))
 		} else {
-			c.JSON(http.StatusCreated, common.SucceedResponse(rows))
+			switch row {
+			case 0:
+				rows, err := exercise.modifyExercise(db)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, common.FailedResponse(err, rows))
+				} else {
+					c.JSON(http.StatusCreated, common.SucceedResponse(rows))
+				}
+
+			case 1:
+				c.JSON(http.StatusConflict, common.SucceedResponse(exercise))
+			}
 		}
+
 	}
 
 	return resultFunc
@@ -260,15 +266,15 @@ func ExerciseRouter(router *gin.Engine, db *sql.DB) {
 	// curl http://127.0.0.1:8080/api/exercise/all?trainer_id=Lee&group_name=kygym -X GET
 	exercise.GET("/all", GetAllExercise(db))
 
-	// Create Specific Exercise.
-	// curl http://127.0.0.1:8080/api/exercise/2 -X POST -d '{"title": "벤치 프레스", "desc": "가슴 근육 향상"}' -H "Content-Type: application/json"
+	// Create Exercise.
+	// curl http://127.0.0.1:8080/api/exercise -X POST -d '{{"title": "푸시업5", "desc": "중복 운동일 경우 409 응답 테스트", "group_name": "dygym", "trainer_id": "trainer1", "category_seq": 23}}' -H "Content-Type: application/json"
 	exercise.POST("/", PostExercise(db))
 
-	// Delete Specific Exercise.
+	// Delete Exercise.
 	// curl http://127.0.0.1:8080/api/exercise/2?trainer_id=Lee&group_name=kygym -X DELETE
 	exercise.DELETE("/:exercise_seq", DeleteExercise(db))
 
-	// Update Specific Exercise.
+	// Update Exercise.
 	// curl http://127.0.0.1:8080/api/exercise/16 -X PATCH -d {"title": "변경된 카테고리", "desc": "Blah Blah.."}
 	exercise.PATCH("/", PatchExercise(db))
 }

@@ -78,9 +78,35 @@ func (c Category) selectAllCategory(db *sql.DB, trainer_id, group_name string) (
 	}
 }
 
+/*
+func (c Category) preAddCategory(db *sql.DB) error {
+	var count int
+	row := db.QueryRow(
+		`SELECT
+			COUNT(title)
+		FROM t_category like '%?%'`, c.Title)
+
+	err := row.Scan(&count)
+	if err != nil {
+		return errors.Wrap(err, "Failed to select From Database")
+	}
+
+	if count > 0 {
+		return errors.Wrap(err, "Duplicated Category Name")
+	}
+	return nil
+}
+*/
+
 // This function is Insert category
 func (c Category) addCategory(db *sql.DB) (int, error) {
 	var id int
+	/*
+		err := c.preAddCategory(db)
+		if err != nil {
+			return id, err
+		}
+	*/
 	stmt, err := db.Prepare(
 		`INSERT INTO 
 			t_category(title,
@@ -91,21 +117,18 @@ func (c Category) addCategory(db *sql.DB) (int, error) {
 				updated_user) 
 			VALUES(?, ?, ?, ?, ?, ?)`)
 	if err != nil {
-		id = 0
 		return id, errors.Wrap(err, "Failed to prepare")
 	}
 
 	result, err := stmt.Exec(
 		c.Title, c.Desc, c.Group_Name, c.Trainer_Id, c.Trainer_Id, c.Trainer_Id)
 	if err != nil {
-		id = 0
 		return id, errors.Wrap(err, "Failed to insert to Database")
 	}
 	defer stmt.Close()
 
 	seq, err := result.LastInsertId()
 	if err != nil {
-		id = 0
 		return id, errors.Wrap(err, "Failed to insert last id to Database")
 	}
 	id = int(seq)
@@ -144,7 +167,7 @@ func (e ExerciseInCatetory) selectExerciseInCategory(category_seq int, db *sql.D
 }
 
 // This function is Delete category
-func (c Category) deleteCategory(db *sql.DB, category_seq int) (int, error) {
+func deleteCategory(db *sql.DB, category_seq int) (int, error) {
 	var rows int
 	var inCategory int
 	count := db.QueryRow(
@@ -154,31 +177,26 @@ func (c Category) deleteCategory(db *sql.DB, category_seq int) (int, error) {
 		WHERE c.seq = ? GROUP BY c.seq`, category_seq)
 	err := count.Scan(&inCategory)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to select before delete Query")
 	}
 
 	if inCategory > 0 {
-		rows = 0
 		return rows, errors.Wrap(err, "Included at least 1 exercise in Category")
 	}
 
 	stmt, err := db.Prepare(
 		`DELETE FROM t_category WHERE seq = ?`)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to prepare")
 	}
 
 	result, err := stmt.Exec(category_seq)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to delete category")
 	}
 
 	row, err := result.RowsAffected()
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to receive From Database")
 	}
 	defer stmt.Close()
@@ -197,19 +215,16 @@ func (c Category) modifyCategory(db *sql.DB) (rows int, err error) {
 				updated_user = ? 
 			WHERE seq = ?`)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to prepare")
 	}
 
 	result, err := stmt.Exec(c.Title, c.Desc, c.Trainer_Id, c.Seq)
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to execute to Database")
 	}
 
 	row, err := result.RowsAffected()
 	if err != nil {
-		rows = 0
 		return rows, errors.Wrap(err, "Failed to receive From Database")
 	}
 	defer stmt.Close()
@@ -264,21 +279,21 @@ func PostCategory(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		row, err := common.DuplicatedTitleCheck("t_category", category.Title, db)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, row))
-		} else {
-			switch {
-			case row == 0:
-				Id, err := category.addCategory(db)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, common.FailedResponse(err, Id))
-				} else {
-					c.JSON(http.StatusCreated, common.SucceedResponse(Id))
-				}
-			default:
-				c.JSON(http.StatusCreated, common.SucceedResponse(row))
+		_, err := common.IsDuplicatedTitle("t_category", category.Title, db)
+		switch err {
+		case nil:
+			_, err := category.addCategory(db)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, common.FailedResponse(err, category))
+			} else {
+				c.JSON(http.StatusCreated, common.SucceedResponse(category))
 			}
+
+		case common.DuplicatedTitle:
+			c.JSON(http.StatusConflict, common.FailedResponse(err, category.Title))
+
+		default:
+			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, category))
 		}
 	}
 
@@ -294,8 +309,7 @@ func DeleteCategory(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		category := Category{}
-		row, err := category.deleteCategory(db, Category_Seq)
+		row, err := deleteCategory(db, Category_Seq)
 		if err != nil {
 			switch {
 			case strings.Contains(err.Error(), "no rows in result set"):
@@ -319,12 +333,25 @@ func PatchCategory(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		row, err := category.modifyCategory(db)
+		row, err := common.IsDuplicatedTitle("t_category", category.Title, db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, common.FailedResponse(err, row))
 		} else {
-			c.JSON(http.StatusCreated, common.SucceedResponse(row))
+			switch row {
+			case 0:
+				row, err := category.modifyCategory(db)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, common.FailedResponse(err, row))
+				} else {
+					c.JSON(http.StatusCreated, common.SucceedResponse(row))
+				}
+
+			case 1:
+				c.JSON(http.StatusConflict, common.SucceedResponse(category))
+			}
+
 		}
+
 	}
 
 	return resultFunc
